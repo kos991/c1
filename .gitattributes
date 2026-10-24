@@ -1,0 +1,9 @@
+# Shell entry points must remain executable by Linux Bash after Windows checkout.
+/client text eol=lf
+/server text eol=lf
+/@init text eol=lf
+/sha256sum text eol=lf
+/resource/client/ui-script/* text eol=lf
+/resource/kernel/* text eol=lf
+*.sha256sum text eol=lf
+/version.php text eol=lf
