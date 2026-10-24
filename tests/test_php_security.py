@@ -1,9 +1,13 @@
 """Run on Debian with python3 -m unittest discover -s tests."""
 import pathlib
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
+
+if shutil.which('dpkg') is None:
+    raise unittest.SkipTest('PHP package test requires Debian dpkg; run it on Debian')
 
 
 INSTALLER = pathlib.Path(__file__).resolve().parents[1] / "client"

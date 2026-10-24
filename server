@@ -18,6 +18,76 @@ branch="main"
 # Keep Debian 13 on its installed suite; retain the legacy upgrade path.
 debianCodename=$(. /etc/os-release; printf '%s' "$VERSION_CODENAME")
 
+configureDebianSignedBy(){
+[[ $debianCodename = trixie ]] || return 0
+local keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+local file temporary
+[[ -r $keyring ]] || { echo "Missing Debian archive keyring: $keyring" >&2; return 1; }
+for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [[ -f $file ]] || continue
+    temporary=$(mktemp) || return 1
+    if ! awk -v keyring="$keyring" -v deb822="${file##*.}" '
+    function debianURI(uri) {
+        return uri ~ /^https?:\/\/(deb\.debian\.org|security\.debian\.org|cloudfront\.debian\.net|mirrors\.aliyun\.com|mirrors\.tuna\.tsinghua\.edu\.cn)\/debian(-security)?\/?$/ || uri ~ /^https?:\/\/debian\.mirror\.constant\.com\/?$/
+    }
+    function debianSuite(suite) { return suite ~ /^trixie(-(updates|security|backports|backports-sloppy))?$/ }
+    function flush(    count, words, i, eligible) {
+        if (!length(block)) return
+        eligible = !signed && length(uris) && length(suites)
+        count = split(uris, words, /[ \t]+/)
+        for (i=1; i<=count; i++) if (length(words[i]) && !debianURI(words[i])) eligible=0
+        count = split(suites, words, /[ \t]+/)
+        for (i=1; i<=count; i++) if (length(words[i]) && !debianSuite(words[i])) eligible=0
+        printf "%s", block
+        if (eligible) print "Signed-By: " keyring
+        block=uris=suites=field=""; signed=0
+    }
+    deb822 == "sources" {
+        if ($0 ~ /^[ \t]*$/) { flush(); print; next }
+        block=block $0 ORS
+        if ($0 ~ /^[ \t]*#/) next
+        if ($0 ~ /^[^ \t:]+:/) {
+            field=tolower($0); sub(/:.*/, "", field)
+            value=$0; sub(/^[^:]+:[ \t]*/, "", value)
+        } else if ($0 ~ /^[ \t]+/) {
+            value=$0; sub(/^[ \t]+/, "", value)
+        } else { field=""; next }
+        if (field == "signed-by") signed=1
+        if (field == "uris") uris=uris " " value
+        if (field == "suites") suites=suites " " value
+        next
+    }
+    /^[ \t]*deb(-src)?[ \t]+/ {
+        rest=$0; sub(/#.*/, "", rest)
+        if (tolower(rest) !~ /signed-by[ \t]*=/) {
+            sub(/^[ \t]*deb(-src)?[ \t]+/, "", rest)
+            options=(rest ~ /^\[/)
+            if (options) sub(/^\[[^]]*\][ \t]*/, "", rest)
+            split(rest, entry, /[ \t]+/)
+            if (debianURI(entry[1]) && debianSuite(entry[2])) {
+                if (options) sub(/\[/, "[signed-by=" keyring " ")
+                else sub(/^[ \t]*deb(-src)?[ \t]+/, "&[signed-by=" keyring "] ")
+            }
+        }
+    }
+    { print }
+    END { if (deb822 == "sources") flush() }
+    ' "$file" >"$temporary"; then
+        rm -f "$temporary"
+        return 1
+    fi
+    if ! cmp -s "$file" "$temporary"; then
+        if [[ ! -e $file.c1-before-signed-by.save ]]; then
+            cp -p "$file" "$file.c1-before-signed-by.save" || { rm -f "$temporary"; return 1; }
+        fi
+        cat "$temporary" >"$file" || { rm -f "$temporary"; return 1; }
+    fi
+    rm -f "$temporary"
+done
+}
+
+configureDebianSignedBy || exit 1
+
 [[ -f "/etc/nginx/conf.d/default.conf" ]] && sed -i 's/fastopen=128/fastopen=500/g' /etc/nginx/conf.d/default.conf
 
 
@@ -1101,56 +1171,76 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Install NGINX$
 
 
 
-makeSSL_D(){
-crontab -l 2>/dev/null >/tmp/now.cron
-sed -i '/acme.sh/d' /tmp/now.cron
-crontab /tmp/now.cron
-rm -rf /tmp/now.cron
-rm -rf "/root/.acme.sh"
-
-export CF_Key="$CFapikey"
-export CF_Email="$CFemail"
-
-if [[ $(systemctl is-active 'nginx') != "active" ]]; then
-  systemctl restart nginx
-  if [[ $? -ne 0 ]]; then
-  sed -i '/Nice=/d' /etc/systemd/system/nginx.service
-  systemctl daemon-reload >/dev/null
-  systemctl restart nginx
-  fi
-else
-systemctl force-reload nginx
+openWebPorts(){
+# Keep UFW enabled and leave unrelated rules (including SSH) untouched.
+if command -v ufw >/dev/null 2>&1 && LC_ALL=C ufw status | grep -q '^Status: active'; then
+    [[ $port != 443 ]] || ufw allow 80/tcp comment 'de_GWD ACME HTTP' || return 1
+    ufw allow "$port/tcp" comment 'de_GWD HTTPS' || return 1
+    ufw allow "$port/udp" comment 'de_GWD QUIC' || return 1
 fi
-
-rm -rf /var/www/ssl/*.cer
-rm -rf /var/www/ssl/*.key
-find /var/www/ssl/*.pem | grep -v "dhparam.pem" | xargs -I {} rm -rf {}
-
-curl https://get.acme.sh | sh
-"/root/.acme.sh"/acme.sh --upgrade  --auto-upgrade
-"/root/.acme.sh"/acme.sh --set-default-ca  --server letsencrypt
-"/root/.acme.sh"/acme.sh --issue --dns dns_cf -d $topDomain -d *.$topDomain -k ec-256 --dnssleep 180
-"/root/.acme.sh"/acme.sh --installcert -d $topDomain \
-               --key-file       /var/www/ssl/de_GWD.key  \
-               --fullchain-file /var/www/ssl/de_GWD.cer \
-               --reloadcmd     "systemctl force-reload nginx" \
-               --ecc
-
-chmod 644 /var/www/ssl/*.key
 }
 
+validateSSLCertificate(){
+local certificate=$1 key=$2 hostname=${3:-}
+local certificatePublicKey privatePublicKey
+[[ -s $certificate && -s $key ]] || return 1
+openssl x509 -in "$certificate" -noout -checkend 0 >/dev/null 2>&1 || return 1
+if [[ -n $hostname ]]; then
+    openssl x509 -in "$certificate" -noout -checkhost "$hostname" >/dev/null 2>&1 || return 1
+fi
+certificatePublicKey=$(openssl x509 -in "$certificate" -pubkey -noout 2>/dev/null) || return 1
+privatePublicKey=$(openssl pkey -in "$key" -passin pass: -pubout 2>/dev/null) || return 1
+[[ $certificatePublicKey = "$privatePublicKey" ]]
+}
 
+prepareACME(){
+# Preserve the account, issued certificates, and renewal configuration.
+if [[ ! -x /root/.acme.sh/acme.sh ]]; then
+    (set -o pipefail; curl -fsSL https://get.acme.sh | sh) || return 1
+fi
+/root/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+}
+
+issueSSLCertificate(){
+local certificateDomain=$1 status=0
+shift
+/root/.acme.sh/acme.sh --issue "$@" || status=$?
+# acme.sh returns 2 when a previously issued certificate is not due for renewal.
+if [[ $status != 0 && $status != 2 ]]; then
+    echo 'Certificate issuance failed. Check DNS and inbound TCP 80 (HTTP-01), or DNS API credentials (DNS-01). Installation stopped.' >&2
+    return 1
+fi
+if ! validateSSLCertificate "/root/.acme.sh/${certificateDomain}_ecc/fullchain.cer" "/root/.acme.sh/${certificateDomain}_ecc/${certificateDomain}.key" "$domain"; then
+    echo 'ACME certificate is missing, invalid, expired, or does not match this domain/key. Existing certificate files were preserved.' >&2
+    return 1
+fi
+/root/.acme.sh/acme.sh --install-cert -d "$certificateDomain" --ecc \
+    --key-file /var/www/ssl/de_GWD.key \
+    --fullchain-file /var/www/ssl/de_GWD.cer \
+    --reloadcmd 'nginx -t && systemctl reload-or-restart nginx' || return 1
+chmod 600 /var/www/ssl/de_GWD.key || return 1
+validateSSLCertificate /var/www/ssl/de_GWD.cer /var/www/ssl/de_GWD.key "$domain"
+}
+
+makeSSL_D(){
+export CF_Key="$CFapikey"
+export CF_Email="$CFemail"
+openWebPorts || exit 1
+prepareACME || exit 1
+issueSSLCertificate "$topDomain" --dns dns_cf -d "$topDomain" -d "*.$topDomain" -k ec-256 --dnssleep 180 || exit 1
+}
 
 makeSSL_W(){
-crontab -l 2>/dev/null >/tmp/now.cron
-sed -i '/acme.sh/d' /tmp/now.cron
-crontab /tmp/now.cron
-rm -rf /tmp/now.cron
-rm -rf "/root/.acme.sh"
-
-rm -rf /etc/nginx/conf.d/80.conf
-rm -rf /etc/nginx/conf.d/default.conf
-cat << EOF >/etc/nginx/conf.d/default.conf
+local httpConf=/etc/nginx/conf.d/80.conf
+openWebPorts || exit 1
+prepareACME || exit 1
+# Keep valid HTTPS serving during reissuance. Replace only an unusable virtual host.
+if ! validateSSLCertificate /var/www/ssl/de_GWD.cer /var/www/ssl/de_GWD.key; then
+    [[ ! -f /etc/nginx/conf.d/default.conf ]] || cp -a /etc/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf.pre-acme
+    rm -f /etc/nginx/conf.d/80.conf
+    httpConf=/etc/nginx/conf.d/default.conf
+fi
+cat << EOF >"$httpConf"
 # SERVER_BASE_START
 server {
     listen      80 reuseport;
@@ -1160,44 +1250,28 @@ server {
 # SERVER_BASE_END
 }
 EOF
-
-if [[ $(systemctl is-active 'nginx') != "active" ]]; then
-  systemctl restart nginx
-  if [[ $? -ne 0 ]]; then
-  sed -i '/Nice=/d' /etc/systemd/system/nginx.service
-  systemctl daemon-reload >/dev/null
-  systemctl restart nginx
-  fi
-else
-systemctl force-reload nginx
-fi
-
-rm -rf /var/www/ssl/*.cer
-rm -rf /var/www/ssl/*.key
-find /var/www/ssl/*.pem | grep -v "dhparam.pem" | xargs -I {} rm -rf {}
-
-curl https://get.acme.sh | sh
-"/root/.acme.sh"/acme.sh --upgrade  --auto-upgrade
-"/root/.acme.sh"/acme.sh --set-default-ca  --server letsencrypt
-"/root/.acme.sh"/acme.sh --issue -d $domain -w /var/www/html -k ec-256
-"/root/.acme.sh"/acme.sh --installcert -d $domain \
-               --key-file       /var/www/ssl/de_GWD.key  \
-               --fullchain-file /var/www/ssl/de_GWD.cer \
-               --reloadcmd     "systemctl force-reload nginx" \
-               --ecc
-
-chmod 644 /var/www/ssl/*.key
+nginx -t && systemctl reload-or-restart nginx || exit 1
+issueSSLCertificate "$domain" -d "$domain" -w /var/www/html -k ec-256 || exit 1
 }
 
 
 
 nginxWebConf(){
+if ! validateSSLCertificate /var/www/ssl/de_GWD.cer /var/www/ssl/de_GWD.key "$domain"; then
+    echo "Cannot enable HTTPS: invalid certificate/key for $domain. Issue a valid certificate first." >&2
+    exit 1
+fi
+openWebPorts || exit 1
 if [[ $port = "443" ]]; then
 cat << EOF >/etc/nginx/conf.d/80.conf
 server {
   listen 80 reuseport;
   server_name $domain;
-  return 301 https://\$server_name\$request_uri;
+  location /.well-known/acme-challenge/ {
+    root /var/www/html;
+    try_files \$uri =404;
+  }
+  location / { return 301 https://\$server_name\$request_uri; }
 }
 EOF
 else
@@ -1453,15 +1527,10 @@ chmod +x /opt/de_GWD/Q2H
 
 cat << "EOF" >/opt/de_GWD/Qday
 #!/bin/bash
-if [[ -n $(openssl x509 -enddate -noout -in /var/www/ssl/de_GWD.cer -checkend 259200 | grep "Certificate will expire") ]] && [[ -d "/root/.acme.sh" ]]; then
-"/root/.acme.sh"/acme.sh --set-default-ca  --server letsencrypt
-"/root/.acme.sh"/acme.sh --cron --force --home "/root/.acme.sh"
-
-sslFolder=$(ls "/root/.acme.sh" | grep '_ecc')
-cp -f "/root/.acme.sh"/$sslFolder/fullchain.cer /var/www/ssl/de_GWD.cer
-cp -f "/root/.acme.sh"/$sslFolder/*.key /var/www/ssl/de_GWD.key
-
-chmod 644 /var/www/ssl/*.key
+# acme.sh deploys each domain to its registered paths and runs its reload hook.
+# Never copy wildcard cache files after an unsuccessful renewal.
+if [[ -x /root/.acme.sh/acme.sh ]]; then
+    /root/.acme.sh/acme.sh --cron --home /root/.acme.sh || exit 1
 fi
 EOF
 chmod +x /opt/de_GWD/Qday
@@ -1534,19 +1603,14 @@ systemctl restart vtrui
 fi
 systemctl enable vtrui >/dev/null 2>&1
 
-systemctl restart nginx
-if [[ $? -ne 0 ]]; then
-sed -i '/Nice=/d' /etc/systemd/system/nginx.service
-systemctl daemon-reload >/dev/null
-systemctl restart nginx
-fi
-systemctl enable nginx >/dev/null 2>&1
+nginx -t && systemctl restart nginx || exit 1
+systemctl enable nginx >/dev/null 2>&1 || exit 1
 
 rm -rf /tmp/comRestart
 EOF
 chmod +x /tmp/comRestart
-screen -dmS comRestart /tmp/comRestart
-sleep 3
+# Wait for service startup; do not print Installed while nginx failed in the background.
+bash /tmp/comRestart || exit 1
 }
 
 

@@ -4,6 +4,76 @@ debianCodename=$(. /etc/os-release; printf '%s' "$VERSION_CODENAME")
 mimallocPackage=libmimalloc2.0
 [[ $debianCodename = trixie ]] && mimallocPackage=libmimalloc3
 
+configureDebianSignedBy(){
+[[ $debianCodename = trixie ]] || return 0
+local keyring=/usr/share/keyrings/debian-archive-keyring.gpg
+local file temporary
+[[ -r $keyring ]] || { echo "Missing Debian archive keyring: $keyring" >&2; return 1; }
+for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+    [[ -f $file ]] || continue
+    temporary=$(mktemp) || return 1
+    if ! awk -v keyring="$keyring" -v deb822="${file##*.}" '
+    function debianURI(uri) {
+        return uri ~ /^https?:\/\/(deb\.debian\.org|security\.debian\.org|cloudfront\.debian\.net|mirrors\.aliyun\.com|mirrors\.tuna\.tsinghua\.edu\.cn)\/debian(-security)?\/?$/ || uri ~ /^https?:\/\/debian\.mirror\.constant\.com\/?$/
+    }
+    function debianSuite(suite) { return suite ~ /^trixie(-(updates|security|backports|backports-sloppy))?$/ }
+    function flush(    count, words, i, eligible) {
+        if (!length(block)) return
+        eligible = !signed && length(uris) && length(suites)
+        count = split(uris, words, /[ \t]+/)
+        for (i=1; i<=count; i++) if (length(words[i]) && !debianURI(words[i])) eligible=0
+        count = split(suites, words, /[ \t]+/)
+        for (i=1; i<=count; i++) if (length(words[i]) && !debianSuite(words[i])) eligible=0
+        printf "%s", block
+        if (eligible) print "Signed-By: " keyring
+        block=uris=suites=field=""; signed=0
+    }
+    deb822 == "sources" {
+        if ($0 ~ /^[ \t]*$/) { flush(); print; next }
+        block=block $0 ORS
+        if ($0 ~ /^[ \t]*#/) next
+        if ($0 ~ /^[^ \t:]+:/) {
+            field=tolower($0); sub(/:.*/, "", field)
+            value=$0; sub(/^[^:]+:[ \t]*/, "", value)
+        } else if ($0 ~ /^[ \t]+/) {
+            value=$0; sub(/^[ \t]+/, "", value)
+        } else { field=""; next }
+        if (field == "signed-by") signed=1
+        if (field == "uris") uris=uris " " value
+        if (field == "suites") suites=suites " " value
+        next
+    }
+    /^[ \t]*deb(-src)?[ \t]+/ {
+        rest=$0; sub(/#.*/, "", rest)
+        if (tolower(rest) !~ /signed-by[ \t]*=/) {
+            sub(/^[ \t]*deb(-src)?[ \t]+/, "", rest)
+            options=(rest ~ /^\[/)
+            if (options) sub(/^\[[^]]*\][ \t]*/, "", rest)
+            split(rest, entry, /[ \t]+/)
+            if (debianURI(entry[1]) && debianSuite(entry[2])) {
+                if (options) sub(/\[/, "[signed-by=" keyring " ")
+                else sub(/^[ \t]*deb(-src)?[ \t]+/, "&[signed-by=" keyring "] ")
+            }
+        }
+    }
+    { print }
+    END { if (deb822 == "sources") flush() }
+    ' "$file" >"$temporary"; then
+        rm -f "$temporary"
+        return 1
+    fi
+    if ! cmp -s "$file" "$temporary"; then
+        if [[ ! -e $file.c1-before-signed-by.save ]]; then
+            cp -p "$file" "$file.c1-before-signed-by.save" || { rm -f "$temporary"; return 1; }
+        fi
+        cat "$temporary" >"$file" || { rm -f "$temporary"; return 1; }
+    fi
+    rm -f "$temporary"
+done
+}
+
+configureDebianSignedBy || exit 1
+
 if [[ $(systemctl is-active swap.target) != "active" ]]; then
 systemctl unmask swap.target >/dev/null 2>&1
 systemctl start swap.target >/dev/null 2>&1

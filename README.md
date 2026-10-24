@@ -54,6 +54,15 @@ bash ./server
 
 回归验证：在 Debian 执行 `python3 -m unittest discover -s tests -v`。五个场景覆盖旧包升级、缺失 FPM 安装、已修复版本、APT 成功但候选版本仍旧及 APT 失败；已在测试机通过。
 
+### Nginx 证书和 APT 提示修复
+
+服务端现在在签发证书前放行启用 UFW 时所需的 TCP 80、TCP 443 和 UDP 443；使用 HTTP-01 时，80 端口必须能从公网访问。ACME 失败、证书为空/过期、域名不匹配或证书与私钥不匹配都会中止安装，不再留下空证书后继续启用 Nginx。证书有效性通过 `openssl` 检查，Nginx 配置通过 `nginx -t` 后才重启。
+
+Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字段，已有第三方源保持不变，并使用 `.c1-before-signed-by.save` 备份源文件。该修复消除 APT 的 `Missing Signed-By` 提示，不改变镜像、套件或组件。
+
+2026-10-24 实机修复：`vm.jinfei.org` 的失败原因是 UFW 只放行 SSH 22，公网无法访问 HTTP-01；已放行 80/tcp、443/tcp、443/udp，签发并安装 Let's Encrypt 证书，外部 TLS 1.3 和 HTTPS 200 验证通过。
+
+
 
 
 
