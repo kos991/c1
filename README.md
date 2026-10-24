@@ -70,7 +70,10 @@ Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字
 
 入口支持：`bash resource/kernel/installkernel --check` 只读预检，`--status` 查看状态，`--install` 安装/更新，`--restore` 准备 Debian 回退内核，`--remove` 在已启动 Debian 内核后卸载 XanMod；无参数进入菜单。当前 Debian 13 amd64 测试机已通过 `--help`、`--status`、`--check` 和 Bash 语法检查，未执行安装或重启。
 
-### Xray 双端更新（v1.26.6.4）
+### C1 独立版本与 Xray 双端更新（v2.0.0+C1）
+
+修改版从本次起使用独立版本 **`v2.0.0+C1`**，替代此前的 `v1.26.6.4` 标识；原版 `jacyl4/de_GWD` 的版本线保持独立。后续修复递增为 `v2.0.1+C1`，功能更新为 `v2.1.0+C1`，不兼容更新递增主版本。`+C1` 标识本仓库修改版，同时兼容现有面板的版本分隔和自动更新排序。此变更只调整项目版本标识，Xray 仍为 `26.10.21`。
+
 
 服务端与客户端共用的 `de_GWD_amd64.zip`、`de_GWD_arm64.zip` 已将 Xray 更新到官方 [v26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21)（安全更新，当前 Latest）。官方发布包 SHA-256 校验通过，两个项目压缩包的校验和同步更新，其他组件保持原样。
 
