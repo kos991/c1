@@ -62,6 +62,15 @@ Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字
 
 2026-10-24 实机修复：`vm.jinfei.org` 的失败原因是 UFW 只放行 SSH 22，公网无法访问 HTTP-01；已放行 80/tcp、443/tcp、443/udp，签发并安装 Let's Encrypt 证书，外部 TLS 1.3 和 HTTPS 200 验证通过。
 
+### XanMod 内核安装入口
+
+`resource/kernel/installkernel` 已替换为基于 `Eric86777/vps-tcp-tune` v5.4.19（参考提交 `7c2301cb3395ea8363ae7401719b416eb830714f`）的 XanMod-only 适配器。它只负责 Debian 12/13 amd64 的 XanMod 内核、Debian 回退内核、GRUB 和 initramfs，不引入原项目的 DNS、IPv6、代理或其他菜单功能。
+
+安全行为：安装前检查系统、虚拟化、Secure Boot、DKMS、磁盘空间和可用 Debian 回退内核；不自动重启、不自动删除旧内核、不运行 `apt autoremove`。旧版 `rc_kernel.local` 自动备份到 `/opt/de_GWD/kernel-backup` 后停用，避免启动后删除当前或回退内核。安装、恢复和卸载均需显式输入 `YES`；卸载 XanMod 前必须先运行 Debian 内核。
+
+入口支持：`bash resource/kernel/installkernel --check` 只读预检，`--status` 查看状态，`--install` 安装/更新，`--restore` 准备 Debian 回退内核，`--remove` 在已启动 Debian 内核后卸载 XanMod；无参数进入菜单。当前 Debian 13 amd64 测试机已通过 `--help`、`--status`、`--check` 和 Bash 语法检查，未执行安装或重启。
+
+
 
 
 
