@@ -70,6 +70,17 @@ Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字
 
 入口支持：`bash resource/kernel/installkernel --check` 只读预检，`--status` 查看状态，`--install` 安装/更新，`--restore` 准备 Debian 回退内核，`--remove` 在已启动 Debian 内核后卸载 XanMod；无参数进入菜单。当前 Debian 13 amd64 测试机已通过 `--help`、`--status`、`--check` 和 Bash 语法检查，未执行安装或重启。
 
+### Xray 双端更新（v1.26.6.4）
+
+服务端与客户端共用的 `de_GWD_amd64.zip`、`de_GWD_arm64.zip` 已将 Xray 更新到官方 [v26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21)（安全更新，当前 Latest）。官方发布包 SHA-256 校验通过，两个项目压缩包的校验和同步更新，其他组件保持原样。
+
+已有安装分别运行最新版 `server` 或 `client`，选择 `0. Update de_GWD`；新安装直接使用新版压缩包。客户端离线安装需同时替换本地对应架构的 ZIP，避免本地旧包覆盖下载更新。启用的客户端转发与反向代理实例由现有更新流程复制新版内核。升级后可运行 `/opt/de_GWD/vtrui/vtrui version`，应显示 `26.10.21`。
+
+Debian 13 amd64 验证：现有服务端配置和客户端 TPROXY、VMess TCP、WS/TLS 配置通过 `run -test`；隔离网络中实际跑通新版双端 TCP、Nginx 终止 TLS 的 WS 转发，以及新版客户端/旧版服务端、旧版客户端/新版服务端的 WS/TLS HTTP 传输。TLS 测试显式信任临时测试 CA，未关闭证书验证。arm64 已校验官方二进制与打包内容，未作实机运行验证；本轮未替换运行中服务的内核。
+
+兼容性变化：新版仍可使用 VMess 和 WebSocket，但会输出上游弃用提示，本次未迁移协议。新版默认拦截来自 VMess 等代理入站、经 freedom 出站访问回环或私网目标的连接；需要通过代理访问内网服务的用户应先评估此变化。本次保留官方默认规则，客户端 TPROXY 的配置检查不等于完整网关、UDP 和 DNS 分流验收。
+
+
 
 
 
