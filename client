@@ -2466,15 +2466,26 @@ rm -rf /tmp/ui-web
 rm -rf /tmp/client.zip
 rm -rf /opt/de_GWD/update
 
-if [[ $(dpkg --list | grep linux-image | wc -l) != "1" ]]; then
-echo -e "${WHITE}[ ${YELLOW}! ${WHITE}]\c" && echo -e "\t${YELLOW}Kernel updated${cRES}"
-fi
 }
 
 
 
 installkernel(){
-bash <(wget --show-progress -cqO- https://raw.githubusercontent.com/kos991/c1/main/resource/kernel/installkernel)
+local script status
+script=$(mktemp) || return 1
+if ! wget --https-only -q -T 15 -t 2 -O "$script" https://raw.githubusercontent.com/kos991/c1/main/resource/kernel/installkernel || [[ ! -s $script ]]; then
+    rm -f "$script"
+    echo "Kernel menu download failed; nothing was run." >&2
+    return 1
+fi
+if ! bash -n "$script"; then
+    rm -f "$script"
+    return 1
+fi
+bash "$script"
+status=$?
+rm -f "$script"
+return "$status"
 }
 
 
@@ -2869,7 +2880,7 @@ serverStatus
  echo -e "${GREEN}================================================================ ${cRES}"
  echo
  echo -e "${GREEN}1. Install de_GWD${cRES}"
- echo -e "${GREEN}2. Install new kernel and reboot${cRES}"
+ echo -e "${GREEN}2. Manage XanMod kernel (amd64; reboot manually)${cRES}"
 echo -e "${YELLOW}3. Clear Pi-hole Subscribed lists${cRES}"
 echo -e "${YELLOW}8. Change Web UI port & Web update port${cRES}"
 echo -e "${YELLOW}9. Change de_GWD password${cRES}"

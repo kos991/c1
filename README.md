@@ -70,6 +70,10 @@ Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字
 
 安全行为：安装前检查系统、虚拟化、Secure Boot、DKMS、磁盘空间和可用 Debian 回退内核；不自动重启、不自动删除旧内核、不运行 `apt autoremove`。旧版 `rc_kernel.local` 自动备份到 `/opt/de_GWD/kernel-backup` 后停用，避免启动后删除当前或回退内核。安装、恢复和卸载均需显式输入 `YES`；卸载 XanMod 前必须先运行 Debian 内核。
 
+客户端与服务端顶层菜单的第 2 项均为“管理 XanMod 内核（仅 amd64，手动重启）”，与内核子菜单一致：安装、恢复和卸载不会自动重启。内核脚本先下载到私有临时文件，验证下载非空且 Bash 语法有效，再进入菜单；下载失败会明确返回错误，避免执行空脚本却显示成功。服务端更新不再凭安装的 `linux-image` 包数量触发重启；客户端更新也不再把多内核并存误报为“Kernel updated”。
+
+192.168.8.41 只读检查：当前运行 Debian `6.12.107+deb13-cloud-amd64`；已安装 XanMod `7.2.12-x64v2-xanmod1` 和 Debian `6.12.113+deb13-cloud-amd64` 回退内核，两者 boot/initrd 均存在。`GRUB_DEFAULT=0` 的主启动项指向已安装的 XanMod，但该机没有执行本轮重启；安装完成不等于运行内核已经切换。`--status`、`--check` 和 19 项隔离内核测试通过；未执行内核安装、卸载或重启。
+
 历史记录（2026-10-24）：此前 Debian 13 amd64 测试机通过 `--help`、`--status`、`--check` 和 Bash 语法检查，未执行内核安装或重启；本轮内核路径仍待验收。
 
 ### C1 独立版本与 Xray 双端更新（v2.0.0）

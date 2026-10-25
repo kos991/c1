@@ -1568,19 +1568,25 @@ bash /tmp/comRestart || exit 1
 }
 
 
-checkKernel(){
-if [[ $(dpkg --list | grep linux-image | wc -l) != "1" ]]; then
-echo -e "${WHITE}[ ${YELLOW}! ${WHITE}]\c" && echo -e "\t${YELLOW}Kernel updated & reboot${cRES}"
-sleep 2
-sudo reboot
-exit
-fi
-}
 
 
 
 installkernel(){
-bash <(wget --show-progress -cqO- https://raw.githubusercontent.com/kos991/c1/main/resource/kernel/installkernel)
+local script status
+script=$(mktemp) || return 1
+if ! wget --https-only -q -T 15 -t 2 -O "$script" https://raw.githubusercontent.com/kos991/c1/main/resource/kernel/installkernel || [[ ! -s $script ]]; then
+    rm -f "$script"
+    echo "Kernel menu download failed; nothing was run." >&2
+    return 1
+fi
+if ! bash -n "$script"; then
+    rm -f "$script"
+    return 1
+fi
+bash "$script"
+status=$?
+rm -f "$script"
+return "$status"
 }
 
 
@@ -2074,7 +2080,6 @@ postInstall
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}de_GWD ${GREEN}Updated${cRES}"
 
-checkKernel
 }
 
 
@@ -2298,7 +2303,7 @@ else
  echo -e "${GREEN}================================================================ ${cRES}"
  echo
  echo -e "${GREEN}1. Install de_GWD${cRES}"
- echo -e "${GREEN}2. Install new kernel and reboot${cRES}"
+ echo -e "${GREEN}2. Manage XanMod kernel (amd64; reboot manually)${cRES}"
    echo -e "${RED}3. Change domain and generate new certificate${cRES}"
    echo -e "${RED}4. Change Xray path & UUID${cRES}"
 echo -e "${YELLOW}0. Update de_GWD${cRES}"
