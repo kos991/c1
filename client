@@ -2700,7 +2700,7 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}de_GWD ${GREEN
 
 
 updateGWD(){
-[[ -f "/opt/de_GWD/version.php" ]] && echo -e "${RED}This is not client${cRES}" && exit
+[[ -f /opt/de_GWD/0conf ]] || { echo -e "${RED}Client configuration not found${cRES}" >&2; return 1; }
 
 cleanDep
 
