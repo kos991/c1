@@ -233,7 +233,10 @@ else
     fi
 fi
 
-[[ -z $(unzip -tq /opt/de_GWD/.repo/de_GWD.zip | grep "No errors detected in compressed data") ]] && echo -e "${WHITE}de_GWD Zip${RED} Download Failed${cRES}" && exit
+if ! unzip -tq /opt/de_GWD/.repo/de_GWD.zip >/dev/null; then
+    echo -e "${WHITE}de_GWD Zip${RED} Download Failed${cRES}" >&2
+    return 1
+fi
 
 }
 
@@ -554,9 +557,9 @@ serverConnect2=$(try_connect "1.1.1.1")
 
 if [[ $1 = "u" ]]; then
     if [[ $2 = "a" ]]; then
-        preDL
-        updateGWD_Green
-        [[ -z $serverConnect1 ]] || [[ -z $serverConnect2 ]] && exit
+        preDL || return 1
+        updateGWD_Green || return 1
+        [[ -n $serverConnect1 && -n $serverConnect2 ]] || return 1
     else
         if [[ -n $serverConnect1 ]] && [[ -n $serverConnect2 ]] && [[ $(systemctl is-active 'vtrui') = "active" ]]; then
         echo -e "${WHITE}de_GWD server connect  ${cRES}\c" && echo -e "\t${WHITE}[${GREEN} ✓ ${WHITE}]${cRES}"
@@ -569,14 +572,14 @@ if [[ $1 = "u" ]]; then
             echo -e "${WHITE}[...]\c" && echo -e "\t${WHITE}Start Updating de_GWD${cRES}\r\c"
 
             if [[ $updateDebian = "Y" ]] || [[ $updateDebian = "y" ]]; then
-            preDL
-            updateAPT
+            preDL || return 1
+            updateAPT || return 1
             fi
-            preDL
-            updateGWD_Green
+            preDL || return 1
+            updateGWD_Green || return 1
         else
         echo -e "${WHITE}de_GWD server connect  ${cRES}\c" && echo -e "\t${WHITE}[${RED} ✕ ${WHITE}]${cRES}"
-        updateGWD_Red
+        updateGWD_Red || return 1
         fi
     fi
 else
@@ -975,21 +978,6 @@ cat << EOF >/etc/rc_online.local
 #!/bin/bash
 echo madvise >/sys/kernel/mm/transparent_hugepage/enabled
 
-$(which ip) route show table local | grep -v 'linkdown' | grep -v 'broadcast' | while read line; do
-line=\$(echo \$line | awk -F' mtu ' '{print\$1}')
-$(which ip) route change \$line mtu 1500 initcwnd 1000 initrwnd 1000 fastopen_no_cookie 1 congctl lock cubic
-done
-
-$(which ip) route show table local | grep ' dev lo ' | while read line; do
-line=\$(echo \$line | awk -F' mtu ' '{print\$1}')
-$(which ip) route change \$line mtu 65520 initcwnd 1000 initrwnd 1000 fastopen_no_cookie 1 congctl lock cubic
-done
-
-NIC_local=\$($(which ip) route | grep -v 'linkdown' | grep -v 'broadcast' | grep -v 'scope' | awk -F' dev ' '{print\$2}' | cut -d' ' -f1)
-$(which ip) route | grep " dev \$NIC_local " | while read line; do
-line=\$(echo \$line | awk -F' mtu ' '{print\$1}')
-$(which ip) route change \$line mtu 1500 fastopen_no_cookie 1 congctl lock $(sysctl net.ipv4.tcp_congestion_control | awk -F' = ' '{print$2}')
-done
 
 
 
@@ -1004,13 +992,13 @@ $(which tc) qdisc del dev lo root >/dev/null 2>&1
 $(which tc) qdisc add dev lo root cake unlimited rtt 50us diffserv4 dual-srchost nonat nowash no-split-gso ack-filter-aggressive raw egress
 
 $(which ip) link add name ifb4lo type ifb >/dev/null 2>&1
-$(which tc) qdisc del dev lo ingress >/dev/null 2>&1
-$(which tc) qdisc add dev lo handle ffff: ingress
+$(which tc) qdisc replace dev lo handle ffff: clsact
 $(which tc) qdisc del dev ifb4lo root >/dev/null 2>&1
 $(which tc) qdisc add dev ifb4lo root cake unlimited rtt 50us diffserv4 dual-dsthost nonat nowash no-split-gso no-ack-filter raw ingress
 $(which ip) link set ifb4lo qlen 10000 mtu 65520
 $(which ip) link set ifb4lo up
-$(which tc) filter add dev lo parent ffff: matchall action mirred egress redirect dev ifb4lo
+$(which tc) filter del dev lo ingress prio 1 >/dev/null 2>&1 || true
+$(which tc) filter add dev lo ingress prio 1 matchall action mirred egress redirect dev ifb4lo
 
 echo \$NIC_device | xargs -n 1 | grep 'virtual' | awk -F'/' '{print\$NF}' | grep -v 'docker' | grep -v 'ifb' | grep -v '^lo\$' | while read line; do
 MTU_NUM=\$(< /sys/class/net/\$line/mtu)
@@ -1020,13 +1008,13 @@ $(which tc) qdisc del dev \$line root >/dev/null 2>&1
 $(which tc) qdisc add dev \$line root cake unlimited rtt 200us diffserv4 dual-srchost nonat nowash no-split-gso ack-filter raw overhead 18 mpu 64 egress
 
 $(which ip) link add name \$ifb4eth type ifb >/dev/null 2>&1
-$(which tc) qdisc del dev \$line ingress >/dev/null 2>&1
-$(which tc) qdisc add dev \$line handle ffff: ingress
+$(which tc) qdisc replace dev \$line handle ffff: clsact
 $(which tc) qdisc del dev \$ifb4eth root >/dev/null 2>&1
 $(which tc) qdisc add dev \$ifb4eth root cake unlimited rtt 200us diffserv4 dual-dsthost nonat nowash no-split-gso no-ack-filter raw overhead 18 mpu 64 ingress
 $(which ip) link set \$ifb4eth qlen 10001 mtu \$MTU_NUM
 $(which ip) link set \$ifb4eth up
-$(which tc) filter add dev \$line parent ffff: matchall action mirred egress redirect dev \$ifb4eth
+$(which tc) filter del dev \$line ingress prio 1 >/dev/null 2>&1 || true
+$(which tc) filter add dev \$line ingress prio 1 matchall action mirred egress redirect dev \$ifb4eth
 done
 
 echo \$NIC_device | xargs -n 1 | grep -v 'virtual' | awk -F'/' '{print\$NF}' | while read line; do
@@ -1037,13 +1025,13 @@ $(which tc) qdisc del dev \$line root >/dev/null 2>&1
 $(which tc) qdisc add dev \$line root cake unlimited besteffort dual-srchost nonat nowash no-split-gso ack-filter ethernet egress
 
 $(which ip) link add name \$ifb4eth type ifb >/dev/null 2>&1
-$(which tc) qdisc del dev \$line ingress >/dev/null 2>&1
-$(which tc) qdisc add dev \$line handle ffff: ingress
+$(which tc) qdisc replace dev \$line handle ffff: clsact
 $(which tc) qdisc del dev \$ifb4eth root >/dev/null 2>&1
 $(which tc) qdisc add dev \$ifb4eth root cake unlimited diffserv4 dual-dsthost nonat nowash no-split-gso no-ack-filter ethernet ingress
 $(which ip) link set \$ifb4eth qlen 10001 mtu \$MTU_NUM
 $(which ip) link set \$ifb4eth up
-$(which tc) filter add dev \$line parent ffff: matchall action mirred egress redirect dev \$ifb4eth
+$(which tc) filter del dev \$line ingress prio 1 >/dev/null 2>&1 || true
+$(which tc) filter add dev \$line ingress prio 1 matchall action mirred egress redirect dev \$ifb4eth
 
 $(which ethtool) -s \$line duplex full >/dev/null 2>&1
 $(which ethtool) -K \$line rx on tx on sg off gro off gso off tx-gso-partial off lro off tso off ufo off >/dev/null 2>&1
@@ -2018,7 +2006,9 @@ printf "[Service]\nExecStartPost=/bin/sleep 0.1\n" >/etc/systemd/system/nginx.se
 systemctl daemon-reload >/dev/null
 systemctl enable nginx >/dev/null 2>&1
 
-[[ ! -f "/var/www/ssl/dhparam.pem" ]] && openssl dhparam -out /var/www/ssl/dhparam.pem 2048
+if [[ ! -f /var/www/ssl/dhparam.pem ]]; then
+    openssl dhparam -out /var/www/ssl/dhparam.pem 2048 || return 1
+fi
 }
 
 
@@ -2053,21 +2043,7 @@ else
 rm -rf /etc/nginx/conf.d/80.conf
 fi
 
-touch /etc/nginx/conf.d/default.conf
-sed -i '/SERVER_BASE_START/,/SERVER_BASE_END/d' /etc/nginx/conf.d/default.conf
-sed -i '/PHP_START/,/PHP_END/d' /etc/nginx/conf.d/default.conf
-sed -i '/Pihole_START/,/Pihole_END/d' /etc/nginx/conf.d/default.conf
-sed -i '/TTYD_START/,/TTYD_END/d' /etc/nginx/conf.d/default.conf
-sed -i '/NETDATA_START/,/NETDATA_END/d' /etc/nginx/conf.d/default.conf
-sed -i '$s/}$//' /etc/nginx/conf.d/default.conf
-
-until [[ $(head -1 /etc/nginx/conf.d/default.conf | cat -e) != "$" ]]; do
-   sed -i '1d' /etc/nginx/conf.d/default.conf
-done
-
-until [[ $(tail -1 /etc/nginx/conf.d/default.conf | cat -e) != "$" ]]; do
-   sed -i '$d' /etc/nginx/conf.d/default.conf
-done
+install -d -m 0755 /etc/nginx/conf.d
 
 cat << EOF >/etc/nginx/conf.d/.HSTS
 add_header X-Download-Options                 "noopen"            always;
@@ -2197,14 +2173,16 @@ location ~ ^/update-terminal(.*)$ {
 }
 # TTYD_END
 
-$(cat /etc/nginx/conf.d/default.conf 2>/dev/null)
+
 }
 EOF
 sed -i '/ssl_trusted_certificate/d' /etc/nginx/conf.d/.ssl_certs
 sed -i '/ssl_stapling/d' /etc/nginx/conf.d/.ssl_certs
 sed -i '/ssl_stapling_verify/d' /etc/nginx/conf.d/.ssl_certs
 sed -i '/ssl_stapling_file/d' /etc/nginx/conf.d/.ssl_certs
-systemctl restart nginx >/dev/null 2>&1
+nginx -t || return 1
+systemctl restart nginx || return 1
+systemctl is-active --quiet nginx || return 1
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Nginx${cRES}"
 }
@@ -2702,16 +2680,19 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}de_GWD ${GREEN
 updateGWD(){
 [[ -f /opt/de_GWD/0conf ]] || { echo -e "${RED}Client configuration not found${cRES}" >&2; return 1; }
 
-cleanDep
+cleanDep || return 1
 
-preUpdate
+preUpdate || return 1
 
 if [[ $1 = "auto" ]]; then
-de_GWDconnect u a
+    de_GWDconnect u a || return 1
 else
-de_GWDconnect u
+    de_GWDconnect u || return 1
 fi
-
+nginx -t || return 1
+for unit in nginx php$(phpVersionForDebian)-fpm smartdns mosdns vtrui nftables docker; do
+    systemctl is-active --quiet "$unit" || { echo "Update failed: $unit is not active" >&2; return 1; }
+done
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}de_GWD ${GREEN}Updated${cRES}"
 }
 
@@ -2720,31 +2701,31 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}de_GWD ${GREEN
 updateGWD_Green(){
 repoDL || return 1
 
-installDep
+installDep || return 1
 
-installNginx
+installNginx || return 1
 
-nginxSet
+nginxSet || return 1
 
 installWebUI || return 1
 
-preInstall
+preInstall || return 1
 
-preConf
+preConf || return 1
 
-installSmartDNS
+installSmartDNS || return 1
 
-installXray
+installXray || return 1
 
-installNftables
+installNftables || return 1
 
-pullpihole
+pullpihole || return 1
 
-installPihole
+installPihole || return 1
 
-piholeSet
+piholeSet || return 1
 
-postInstall
+postInstall || return 1
 }
 
 updateGWD_Red(){
@@ -2768,19 +2749,19 @@ installDep
 
 repoDL || return 1
 
-installNginx
+installNginx || return 1
 
-nginxSet
+nginxSet || return 1
 
 installWebUI || return 1
 
-pullpihole
+pullpihole || return 1
 
-installPihole
+installPihole || return 1
 
-piholeSet
+piholeSet || return 1
 
-postInstall
+postInstall || return 1
 }
 
 

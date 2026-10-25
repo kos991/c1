@@ -50,6 +50,8 @@ bash ./server
 
 更新角色判断修复：客户端以 `/opt/de_GWD/0conf` 为安装依据，不再因额外的 `/opt/de_GWD/version.php` 误判为服务端；服务端更新同时要求服务端版本文件存在且客户端配置不存在。错误角色返回非零并在修改系统前停止。新增六项角色边界回归测试，覆盖额外版本文件、正常双端安装和未安装主机。
 
+更新重入实测：同一测试机执行客户端快速更新时，旧 Nginx 模板把 `/restore/` 与 `/terminal-auth.php` 重复拼接，导致服务失败却仍输出更新成功。现在每次生成完整配置并在重启前 `nginx -t`，已连续生成两次且只保留一份路由；失败通过更新入口返回非零并停止成功提示。修复缓存 ZIP、现有 DH 参数文件条件为假导致的误报失败；移除不存在的 `tcpTime` 调用。网卡 `clsact` 已存在时不再另加互斥 `ingress` qdisc，IFB 过滤器按 ingress hook 重建。在 111 上实际快速更新返回 0，Nginx/PHP/DNS/Xray/nftables/Docker/SSH 均 active，面板和透明代理 HTTPS 均返回 200；重跑 `/etc/rc_online.local` 无此前的 qdisc/RTNETLINK 报错。配置与服务层面的更新已验证，整机重启仍未验收。
+
 **仍未验证**：整机重启、Debian 12 和 arm64 实机安装/升级、完整 LAN 客户端 UDP/透明代理、全部转发与反向代理操作、DoG、服务端完整安装、证书签发/续期、WARP。安装过程中实际升级了系统软件包及 Debian 回退内核，未重启当前 XanMod 内核；配置回滚不是系统软件包版本回滚。管理页使用安装器生成的自签名证书，浏览器需明确接受该测试证书。
 
 **历史记录（2026-10-24，不适用于当前候选）**：此前 Debian 13.7 amd64 / Linux 6.12 环境中曾检查 APT 源处理、Nginx `libmimalloc.so.2` 兼容、旧 PHP 7.4 FastCGI/SQLite/XML/Intl、Docker `hello-world`、隔离网络的 nftables/TPROXY/策略路由和旧 ZIP 内二进制版本。旧 Sury PHP 7.4 的包版本/安全回补检查仅涉及旧部署，不能证明当前 Debian PHP 8.4/8.2 已修复特定漏洞；旧 PHP 7.4 的测试和安装函数已不作为当前安装方案。任何漏洞状态均以对应发行版/上游公告及实际安装包为准，不使用历史测试代替本轮验证。

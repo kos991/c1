@@ -10,7 +10,6 @@ cRES='\E[0m'
 
 
 
-/opt/de_GWD/tcpTime
 
 serverConnect1=$(curl -Is -m 5 google.com | grep 'HTTP')
 serverConnect2=$(curl -Is -m 5 youtube.com | grep 'HTTP')
