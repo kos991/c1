@@ -86,6 +86,8 @@ GPT/ChatGPT、Claude 独立分流及节点服务端版本“未检测”标识�
 
 客户端与服务端安装器均以同一份 `version.php` 的首行作为本地版本；手动上传本地安装资源时，须将该文件与 `client` / `server` 一起上传。面板“客户端 C1 版本”卡片比较的是本机 `/var/lib/de_GWD/version.php` 与 `kos991/c1/main/version.php`，**不代表下方代理节点的版本**。节点各自可能运行旧 de_GWD 或其他服务端；现有 VMess/WebSocket 接入不提供可信的版本声明，节点表的“服务端版本”因此标为“未检测”，不能把本机 `v2.0.0` 冒充 bwg 等节点版本。双端自动更新比较时兼容历史 `+C1` 后缀，仅远端语义版本真正更高才触发。
 
+版本号回退后，111 曾从 GitHub raw 缓存读到旧 `v2.1.0`，与已回退的仓库版本不一致；版本检测请求现在发送 `Cache-Control: no-cache`。在 111 的真实面板中已验证显示 `v2.0.0 本机` / `v2.0.0 发布`，没有错误的更新提示，GPT/Claude 功能和运行中服务保持不变。
+
 预定义 AI 分流新增 GPT/ChatGPT 和 Claude 的独立节点选项；保留原 OpenAI 规则和配置。GPT 覆盖 ChatGPT 网页、认证与静态资源域名，并排在范围较广的 `geosite:openai` 规则之前；`api.openai.com` 继续由 OpenAI 选择控制。未选择 GPT 时不写 GPT 专属规则，交集仍按原 OpenAI 选择或默认代理运行。Claude 覆盖 `claude.ai`、`claude.com`、`anthropic.com` 等官方域名及专用资源域名；未声明覆盖所有第三方 CDN。111 的隔离配置在 OpenAI 与 GPT 指向不同节点时，实测路由顺序为 GPT → OpenAI → Claude，Xray 配置检查通过；浏览器规则写入后保存和回显通过，随后恢复原配置。旧版 `geosite:apple-ads` 在当前数据文件中缺失，已从 Apple 默认规则移除，避免整个路由配置加载失败。
 
 
