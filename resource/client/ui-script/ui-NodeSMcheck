@@ -1,10 +1,11 @@
 #!/bin/bash
 source /opt/de_GWD/ui-node-lib
 set -euo pipefail
-for tag in nodeSMyoutube nodeSMnetflix nodeSMhdh nodeSMtvb nodeSMbahamut nodeSMopenai nodeSMapple; do
-    node_check "$tag" media || { printf '0\n-none-\n'; }
+for tag in nodeSMyoutube nodeSMnetflix nodeSMhdh nodeSMtvb nodeSMbahamut nodeSMopenai nodeSMgpt nodeSMclaude nodeSMapple; do
+    node_check "$tag" media
 done
-if [[ $(jq -r '.v2nodeDIV.nodeSM.steam // empty' "$NODE_CONF") == proxy ]]; then
+steam_mode=$(jq -r '.v2nodeDIV.nodeSM.steam // empty' "$NODE_CONF")
+if [[ $steam_mode == proxy ]]; then
     printf '1\n默认代理\n'
 else
     printf '0\n-none-\n'

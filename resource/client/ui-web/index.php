@@ -131,7 +131,7 @@
                 <div class="card-body-icon">
                   <i class="fas fa-bell"></i>
                 </div>
-                <div class="form-row align-items-center">版本检测</div>
+                <div class="form-row align-items-center">客户端 C1 版本</div>
               </div>
               <a class="card-footer text-white clearfix small z-1">
                 <h6 class="float-left" style="margin-bottom: 0"><span id="currentver" class="" style="font-size:0.75rem;font-weight:600;line-height:0.35;border-radius:10rem;"></span></h6>
@@ -318,6 +318,48 @@ for( $i=0; $i<count($de_GWDconf->v2node); $i++){
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMopenai$num' onclick="buttonNodeSMopenai(this)">$name</a>
+EOT;
+}
+?>
+      </div>
+  </div>
+</div>
+
+<div class="input-group input-group-sm mb-3">
+  <div class="input-group-prepend">
+    <span class="input-group-text text-white" style="border-color: #10a37f;background-color: #10a37f;">GPT / ChatGPT</span>
+  </div>
+  <div class="input-group-append">
+      <button id="nodeSMshowGpt" class="btn btn-outline-secondary dropdown-toggle border-left-0" type="button" data-toggle="dropdown"></button>
+      <div id="nodeSMgpt" class="dropdown-menu">
+<a class='dropdown-item' href='#' id='nodeSMgpt0' onclick="buttonNodeSMgpt(this)"> 默认代理 </a>
+<?php
+for( $i=0; $i<count($de_GWDconf->v2node); $i++){
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
+  $num = $i+1;
+print <<<EOT
+<a class='dropdown-item' href='#' id='nodeSMgpt$num' onclick="buttonNodeSMgpt(this)">$name</a>
+EOT;
+}
+?>
+      </div>
+  </div>
+</div>
+
+<div class="input-group input-group-sm mb-3">
+  <div class="input-group-prepend">
+    <span class="input-group-text text-white" style="border-color: #d97757;background-color: #d97757;">Claude</span>
+  </div>
+  <div class="input-group-append">
+      <button id="nodeSMshowClaude" class="btn btn-outline-secondary dropdown-toggle border-left-0" type="button" data-toggle="dropdown"></button>
+      <div id="nodeSMclaude" class="dropdown-menu">
+<a class='dropdown-item' href='#' id='nodeSMclaude0' onclick="buttonNodeSMclaude(this)"> 默认代理 </a>
+<?php
+for( $i=0; $i<count($de_GWDconf->v2node); $i++){
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
+  $num = $i+1;
+print <<<EOT
+<a class='dropdown-item' href='#' id='nodeSMclaude$num' onclick="buttonNodeSMclaude(this)">$name</a>
 EOT;
 }
 ?>
@@ -631,6 +673,7 @@ EOT;
                     <th>#</th>
                     <th>节点地址</th>
                     <th class="text-left">节点名</th>
+                    <th title="节点端未提供可验证的版本接口">服务端版本</th>
                     <th>延迟(ms)</th>
                     <th>速度(MB/s)</th>
                     <th>操作</th>
@@ -649,6 +692,7 @@ print <<<EOT
                     <td class="align-middle">$nodeNUM</td>
                     <td class="align-middle"><span id="nodeDomain{$i}">{$domain}</span></td>
                     <td class="text-left"><span id="nodeshow{$i}">{$name}</span></td>
+                    <td class="align-middle" title="不能从客户端发布版本推断节点版本">未检测</td>
                     <td class="align-middle"><span id="ping{$i}" class='text-success'></span></td>
                     <td class="align-middle"><span id="speed{$i}" class='text-success'><a href="javascript:void(0)" class="text-success" onclick="buttonSpeed(this)"><i class="far fa-play-circle fa-lg"></i></a></span></td>
                     <td class="align-middle"><button id="switch{$i}" type="button" class="btn $checkStatus btn-sm" onclick="buttonSwitch(this)">切换</button></td>
@@ -911,7 +955,7 @@ $.post("./act/speedT.php", {speedT:SPEEDindex}, function(data){$('#speed'+SPEEDi
 function buttonSwitch(buttonSwitch){
 var SWITCHobj = $(buttonSwitch).parent().parent().parent().find('tr')
 var SWITCHindex = SWITCHobj.index($(buttonSwitch).parent().parent()[0])
-$("#nodeTable td:nth-child(6) button").attr('class', "btn btn-outline-secondary btn-sm")
+$("#nodeTable td:nth-child(7) button").attr('class', "btn btn-outline-secondary btn-sm")
 $("#buttonSSdetail").attr('class','btn btn-outline-secondary btn-sm mt-1')
 $('#switch'+SWITCHindex).attr('class', 'btn btn-success btn-sm');
 $.post("./act/NodeChange.php", {nodenum:SWITCHindex}, function(){})
@@ -963,6 +1007,16 @@ var NodeSMopenaiIndex = NodeSMopenaiOBJ.index($(buttonNodeSMopenai))
 var NodeSMopenaiName = $('#nodeSMopenai'+NodeSMopenaiIndex).text()
 $('#nodeSMshowOpenai').text(NodeSMopenaiName)
 $('#nodeSMshowOpenai').val(NodeSMopenaiIndex)
+}
+
+function buttonNodeSMgpt(item){
+var index = $(item).parent().find('a').index($(item))
+$('#nodeSMshowGpt').text($('#nodeSMgpt'+index).text()).val(index)
+}
+
+function buttonNodeSMclaude(item){
+var index = $(item).parent().find('a').index($(item))
+$('#nodeSMshowClaude').text($('#nodeSMclaude'+index).text()).val(index)
 }
 
 function buttonNodeSMapple(buttonNodeSMapple){
@@ -1051,6 +1105,8 @@ $('#nodeSMshowBahamut').text(' 默认代理 ')
 $('#nodeSMshowBahamut').val('0')
 $('#nodeSMshowOpenai').text(' 默认代理 ')
 $('#nodeSMshowOpenai').val('0')
+$('#nodeSMshowGpt').text(' 默认代理 ').val('0')
+$('#nodeSMshowClaude').text(' 默认代理 ').val('0')
 $('#nodeSMshowApple').text(' 直连 ')
 $('#nodeSMshowApple').val('0')
 $('#nodeSMshowSteam').text(' 直连 ')
@@ -1065,9 +1121,11 @@ nodeSMshowHDH=$('#nodeSMshowHDH').val()
 nodeSMshowTVB=$('#nodeSMshowTVB').val()
 nodeSMshowBahamut=$('#nodeSMshowBahamut').val()
 nodeSMshowOpenai=$('#nodeSMshowOpenai').val()
+nodeSMshowGpt=$('#nodeSMshowGpt').val()
+nodeSMshowClaude=$('#nodeSMshowClaude').val()
 nodeSMshowApple=$('#nodeSMshowApple').val()
 nodeSMshowSteam=$('#nodeSMshowSteam').val()
-$.post('./act/NodeSMrules.php', {nodeSMshowYoutube:nodeSMshowYoutube, nodeSMshowNetflix:nodeSMshowNetflix, nodeSMshowHDH:nodeSMshowHDH, nodeSMshowTVB:nodeSMshowTVB, nodeSMshowBahamut:nodeSMshowBahamut, nodeSMshowOpenai:nodeSMshowOpenai, nodeSMshowApple:nodeSMshowApple, nodeSMshowSteam:nodeSMshowSteam}, function(result){
+$.post('./act/NodeSMrules.php', {nodeSMshowYoutube:nodeSMshowYoutube, nodeSMshowNetflix:nodeSMshowNetflix, nodeSMshowHDH:nodeSMshowHDH, nodeSMshowTVB:nodeSMshowTVB, nodeSMshowBahamut:nodeSMshowBahamut, nodeSMshowOpenai:nodeSMshowOpenai, nodeSMshowGpt:nodeSMshowGpt, nodeSMshowClaude:nodeSMshowClaude, nodeSMshowApple:nodeSMshowApple, nodeSMshowSteam:nodeSMshowSteam}, function(result){
   $("#submitNodeSMrulesLoading").removeClass()
   $("#nodeSMrules").modal('hide')
   window.location.reload()
@@ -1136,7 +1194,7 @@ $.post('./act/changeNodeSS.php', {ssAddress:ssAddress, ssPort:ssPort, ssMethod:s
   $("#buttonSSsubmitloading").removeClass()
   $("#ssDetail").modal('hide')
   $("#buttonSSdetail").attr('class','btn btn-success btn-sm mt-1')
-  $("#nodeTable td:nth-child(6) button").attr('class', "btn btn-outline-secondary btn-sm")
+  $("#nodeTable td:nth-child(7) button").attr('class', "btn btn-outline-secondary btn-sm")
 })
 })
 
@@ -1252,16 +1310,18 @@ let openaiName = SMarray[11]
 if (openaiName == "-none-") {
     openaiName = " 默认代理 "
 }
-let appleNum = SMarray[12]
-let appleName = SMarray[13]
-if (appleName == "-none-") {
-    appleName = " 直连 "
-}
-let steamNum = SMarray[14]
-let steamName = SMarray[15]
-if (steamName == "-none-") {
-    steamName = " 直连 "
-}
+let gptNum = SMarray[12]
+let gptName = SMarray[13]
+if (gptName == "-none-") gptName = " 默认代理 "
+let claudeNum = SMarray[14]
+let claudeName = SMarray[15]
+if (claudeName == "-none-") claudeName = " 默认代理 "
+let appleNum = SMarray[16]
+let appleName = SMarray[17]
+if (appleName == "-none-") appleName = " 直连 "
+let steamNum = SMarray[18]
+let steamName = SMarray[19]
+if (steamName == "-none-") steamName = " 直连 "
 
 $('#nodeSMshowYoutube').val(youtubeNum)
 $('#nodeSMshowYoutube').text(youtubeName)
@@ -1275,6 +1335,8 @@ $('#nodeSMshowBahamut').val(bahamutNum)
 $('#nodeSMshowBahamut').text(bahamutName)
 $('#nodeSMshowOpenai').val(openaiNum)
 $('#nodeSMshowOpenai').text(openaiName)
+$('#nodeSMshowGpt').val(gptNum).text(gptName)
+$('#nodeSMshowClaude').val(claudeNum).text(claudeName)
 $('#nodeSMshowApple').val(appleNum)
 $('#nodeSMshowApple').text(appleName)
 $('#nodeSMshowSteam').val(steamNum)

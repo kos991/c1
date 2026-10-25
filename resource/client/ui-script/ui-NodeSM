@@ -2,17 +2,26 @@
 source /opt/de_GWD/ui-node-lib
 set -euo pipefail
 
-apple='["geosite:apple","geosite:apple-ads","geosite:apple-dev","geosite:apple-update","geosite:icloud","geosite:apple@cn","geosite:apple-cn"]'
+# Service-owned domains: https://github.com/v2fly/domain-list-community/blob/master/data/openai
+# ChatGPT authentication: https://help.openai.com/en/articles/7426629-why-cant-i-log-in-to-chatgpt
+# Claude web/API/assets: https://code.claude.com/docs/en/network-config#network-access-requirements
+# Keep api.openai.com under the existing OpenAI selection; shared ChatGPT auth/assets use GPT.
+gpt='["domain:chatgpt.com","domain:chat.com","domain:oaistatic.com","domain:oaistatsig.com","domain:oaiusercontent.com","domain:chat.openai.com","domain:auth.openai.com","domain:chatgpt.livekit.cloud"]'
+claude='["domain:claude.ai","domain:claude.com","domain:anthropic.com","domain:claudeusercontent.com","domain:claudemcpcontent.com"]'
+apple='["geosite:apple","geosite:apple-dev","geosite:apple-update","geosite:icloud","geosite:apple@cn","geosite:apple-cn"]'
+legacy_apple='["geosite:apple","geosite:apple-ads","geosite:apple-dev","geosite:apple-update","geosite:icloud","geosite:apple@cn","geosite:apple-cn"]'
 steam='["domain:steamserver.net","geosite:steam@cn","geosite:category-games@cn"]'
-services=(youtube netflix hdh tvb bahamut openai apple)
-tags=(nodeSMyoutube nodeSMnetflix nodeSMhdh nodeSMtvb nodeSMbahamut nodeSMopenai nodeSMapple)
-domains=('["geosite:youtube"]' '["geosite:netflix"]' '["geosite:hbo","geosite:disney","geosite:hulu"]' '["geosite:tvb"]' '["geosite:bahamut"]' '["geosite:openai"]' "$apple")
+services=(youtube netflix hdh tvb bahamut openai gpt claude apple)
+tags=(nodeSMyoutube nodeSMnetflix nodeSMhdh nodeSMtvb nodeSMbahamut nodeSMopenai nodeSMgpt nodeSMclaude nodeSMapple)
+domains=('["geosite:youtube"]' '["geosite:netflix"]' '["geosite:hbo","geosite:disney","geosite:hulu"]' '["geosite:tvb"]' '["geosite:bahamut"]' '["geosite:openai"]' "$gpt" "$claude" "$apple")
 
-node_update "$NODE_XRAY" --argjson apple "$apple" --argjson steam "$steam" '
-  .outbounds |= map(select((.tag as $tag | ["nodeSMyoutube","nodeSMnetflix","nodeSMhdh","nodeSMtvb","nodeSMbahamut","nodeSMopenai","nodeSMapple"] | index($tag)) == null)) |
-  .routing.rules |= map(select((.outboundTag as $tag | ["nodeSMyoutube","nodeSMnetflix","nodeSMhdh","nodeSMtvb","nodeSMbahamut","nodeSMopenai","nodeSMapple"] | index($tag)) == null and .domain != $apple and .domain != $steam))'
+node_update "$NODE_XRAY" --argjson apple "$apple" --argjson legacyApple "$legacy_apple" --argjson steam "$steam" '
+  .outbounds |= map(select((.tag as $tag | ["nodeSMyoutube","nodeSMnetflix","nodeSMhdh","nodeSMtvb","nodeSMbahamut","nodeSMopenai","nodeSMgpt","nodeSMclaude","nodeSMapple"] | index($tag)) == null)) |
+  .routing.rules |= map(select((.outboundTag as $tag | ["nodeSMyoutube","nodeSMnetflix","nodeSMhdh","nodeSMtvb","nodeSMbahamut","nodeSMopenai","nodeSMgpt","nodeSMclaude","nodeSMapple"] | index($tag)) == null and .domain != $apple and .domain != $legacyApple and .domain != $steam))'
 
-for i in "${!services[@]}"; do
+# Xray uses the first matching rule: append GPT before the broader OpenAI geosite.
+# Array indices still map to UI arguments: youtube ... openai gpt claude apple steam.
+for i in 0 1 2 3 4 6 5 7 8; do
     service=${services[i]} tag=${tags[i]} list=${domains[i]}
     argument=${@:$((i+2)):1}
     if [[ $argument == 0 ]]; then
@@ -26,7 +35,10 @@ for i in "${!services[@]}"; do
         node_update "$NODE_CONF" --arg service "$service" --arg address "$address" '.v2nodeDIV.nodeSM[$service]=$address'
     else
         address=$(jq -r --arg service "$service" '.v2nodeDIV.nodeSM[$service] // empty' "$NODE_CONF")
-        [[ -n $address ]] || continue
+        if [[ -z $address ]]; then
+            if [[ $service == apple ]]; then node_rule direct domain "$apple"; fi
+            continue
+        fi
         record=$(jq -ce --arg address "$address" 'first(.v2node[] | select(.domain == $address))' "$NODE_CONF")
         tls=$(jq -r '.tls // ""' <<<"$record")
         uuid=$(jq -er '.uuid | select(type == "string" and length > 0)' <<<"$record")
@@ -41,20 +53,21 @@ for i in "${!services[@]}"; do
     fi
 done
 
-if [[ ${9:-} == 0 ]]; then
+if [[ ${11:-} == 0 ]]; then
     node_update "$NODE_CONF" 'del(.v2nodeDIV.nodeSM.steam)'
     node_rule direct domain "$steam"
-elif [[ -n ${9:-} ]]; then
+elif [[ -n ${11:-} ]]; then
     node_update "$NODE_CONF" '.v2nodeDIV.nodeSM.steam="proxy"'
-elif [[ $(jq -r '.v2nodeDIV.nodeSM.steam // empty' "$NODE_CONF") != proxy ]]; then
-    node_rule direct domain "$steam"
+else
+    steam_mode=$(jq -r '.v2nodeDIV.nodeSM.steam // empty' "$NODE_CONF")
+    if [[ $steam_mode != proxy ]]; then node_rule direct domain "$steam"; fi
 fi
 
 /opt/de_GWD/ui-submitListBWsm
-if [[ ${2:-} == 0 && ${3:-} == 0 && ${4:-} == 0 && ${5:-} == 0 && ${6:-} == 0 && ${7:-} == 0 && ${8:-} == 0 ]]; then
-    node_update "$NODE_CONF" '.v2nodeDIV.nodeSM.status="off"'
-else
+if jq -e '(.v2nodeDIV.nodeSM // {}) | any(to_entries[]; .key != "status" and .key != "steam")' "$NODE_CONF" >/dev/null; then
     node_update "$NODE_CONF" '.v2nodeDIV.nodeSM.status="on"'
+else
+    node_update "$NODE_CONF" '.v2nodeDIV.nodeSM.status="off"'
 fi
 
 if [[ ${1:-} == r ]]; then

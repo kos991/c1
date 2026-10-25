@@ -72,7 +72,7 @@ if (in_array($action, $static, true)) {
             if (!isset($config['v2node'][(int)$index])) reject();
             $command = ['/opt/de_GWD/' . ($action === 'ui-NodeCUchange' ? 'ui-NodeCU' : 'ui-NodeDT'), 'r', $index]; break;
         case 'ui-NodeSMrules':
-            if (count($argv) !== 8) reject();
+            if (count($argv) !== 10) reject();
             $config = json_decode(file_get_contents('/opt/de_GWD/0conf'), true);
             $nodes = $config['v2node'] ?? [];
             if (!is_array($nodes)) reject();
