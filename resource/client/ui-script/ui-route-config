@@ -1,0 +1,274 @@
+#!/usr/bin/python3
+"""Generate the routing helpers' privileged configuration from validated data."""
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path('/opt/de_GWD')
+SOCKOPT = {'mark': 255, 'tcpFastOpen': True, 'tcpNoDelay': True}
+BLOCK_NONPUBLIC = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8',
+                   '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24',
+                   '192.0.2.0/24', '192.168.0.0/16', '198.18.0.0/15',
+                   '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4',
+                   '240.0.0.0/4', '::/128', '::1/128', '::ffff:0:0/96',
+                   'fc00::/7', 'fe80::/10', 'ff00::/8']
+
+
+def fail(message):
+    raise ValueError(message)
+
+
+def text(value, name, empty=False):
+    if not isinstance(value, str) or (not value and not empty) or any(ord(c) < 32 or ord(c) == 127 for c in value):
+        fail('Invalid ' + name)
+    return value
+
+
+def port(value):
+    if isinstance(value, bool) or not re.fullmatch(r'[0-9]{1,5}', str(value)) or not 1 <= int(value) <= 65535:
+        fail('Port must be between 1 and 65535')
+    return int(value)
+
+
+def host(value):
+    value = text(value, 'host')
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        if len(value) > 253 or not all(re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in value.rstrip('.').split('.')):
+            fail('Invalid host')
+        return value
+
+
+def endpoint(value):
+    value = text(value, 'endpoint')
+    if value.startswith('['):
+        match = re.fullmatch(r'\[([^]]+)\](?::([0-9]+))?', value)
+        if not match:
+            fail('Invalid IPv6 endpoint')
+        return host(match[1]), port(match[2] or 443)
+    if value.count(':') > 1:
+        return str(ipaddress.IPv6Address(value)), 443
+    name, separator, number = value.partition(':')
+    return host(name), port(number) if separator else 443
+
+
+def uuid(value):
+    # Xray also accepts a custom UUID string of at most 30 bytes.
+    value = text(value, 'user ID')
+    if not re.fullmatch(r'[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value) and len(value.encode()) > 30:
+        fail('Invalid Xray user ID')
+    return value
+
+
+def network(value):
+    value = text(value, 'network').replace(' ', '')
+    values = value.split(',')
+    if not values or len(values) != len(set(values)) or any(v not in ('tcp', 'udp') for v in values):
+        fail('Network must be tcp, udp or tcp,udp')
+    return ','.join(values)
+
+
+def atomic(path, content, mode=0o600, group=None):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name + '.', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(temporary, mode)
+        if group is not None:
+            import grp
+            os.chown(temporary, 0, grp.getgrnam(group).gr_gid)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def save(path, value, shared=False, readable=False):
+    mode = 0o660 if shared else 0o640 if readable else 0o600
+    atomic(path, json.dumps(value, ensure_ascii=False, indent=2) + '\n', mode, 'www-data' if shared or readable else None)
+
+
+def load(path):
+    with open(path) as source:
+        return json.load(source)
+
+
+def base():
+    return {'log': {'access': 'none', 'error': 'none', 'loglevel': 'none'},
+            'dns': {'queryStrategy': 'UseIP', 'disableCache': True, 'servers': ['tcp+local://127.0.0.1:53']},
+            'routing': {'rules': []}}
+
+
+def vmess(tag, node):
+    address, number = endpoint(node['domain'])
+    tls = text(node.get('tls') or address, 'TLS server name')
+    path = text(node.get('path') or '', 'WebSocket path', True)
+    stream = {'network': 'tcp', 'sockopt': dict(SOCKOPT)}
+    if path:
+        stream.update(network='ws', wsSettings={'path': path, 'headers': {'Host': tls}}, security='tls', tlsSettings={'serverName': tls, 'allowInsecure': False})
+    return {'tag': tag, 'protocol': 'vmess', 'settings': {'vnext': [{'address': address, 'port': number, 'users': [{'id': uuid(node['uuid']), 'security': 'auto'}]}]}, 'streamSettings': stream}
+
+
+def inbound(tag, number, users):
+    users = list(dict.fromkeys(uuid(value) for value in users))
+    if not users:
+        fail('At least one authenticated user is required')
+    return {'tag': tag, 'port': port(number), 'protocol': 'vmess', 'settings': {'clients': [{'id': value} for value in users]}, 'streamSettings': {'network': 'tcp'}}
+
+
+def free_ports(bindings, owner, ignore_tag=None):
+    # Inspect configured peers as well as live listeners; never evict another service.
+    occupied = set()
+    for number, proto in bindings:
+        pair = (port(number), proto)
+        if pair in occupied:
+            fail('Overlapping listener: %s/%s' % pair)
+        occupied.add(pair)
+    for service in ('vtrui', 'vtrui1', 'RproxyS', 'RproxyC'):
+        filename = ROOT / service / 'config.json'
+        if service == owner or not filename.exists():
+            continue
+        if (subprocess.run(['systemctl', 'is-enabled', '--quiet', service], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode and
+                subprocess.run(['systemctl', 'is-active', '--quiet', service], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode):
+            continue
+        for item in load(filename).get('inbounds', []):
+            if item.get('tag') == ignore_tag:
+                continue
+            if not isinstance(item.get('port'), (str, int)) or not str(item['port']).isdigit():
+                continue
+            protocols = item.get('settings', {}).get('network', 'tcp') if item.get('protocol') == 'dokodemo-door' else ('udp' if item.get('protocol') == 'wireguard' else 'tcp')
+            for proto in protocols.split(','):
+                if (int(item['port']), proto) in occupied:
+                    fail('Listener conflicts with ' + service)
+    result = subprocess.run(['ss', '-H', '-lntup'], check=True, capture_output=True, text=True)
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        try:
+            pair = (int(fields[4].rsplit(':', 1)[1]), fields[0])
+        except ValueError:
+            continue
+        if pair not in occupied:
+            continue
+        pids = re.findall(r'pid=(\d+)', line)
+        own = bool(pids)
+        for pid in pids:
+            try:
+                own = own and Path(os.readlink('/proc/' + pid + '/exe')).name == owner
+            except OSError:
+                own = False
+        if not own:
+            fail('Port already in use: %s/%s' % pair)
+
+
+def forwarding(conf, mode):
+    settings = conf['FORWARD'][mode.upper()]
+    number = port(settings['port'])
+    users = [entry[mode.upper() + 'uuid'] for entry in settings['uuid']]
+    listener = inbound('forward0' if mode == 'fwd0' else 'forward1', number, users)
+    owner = 'vtrui' if mode == 'fwd0' else 'vtrui1'
+    free_ports([(number, 'tcp')], owner)
+    if mode == 'fwd0':
+        result = load(ROOT / 'vtrui/config.json')
+        retained = [item for item in result.get('inbounds', []) if item.get('tag') != 'forward0']
+        if any(str(item.get('port')) == str(number) for item in retained):
+            fail('Forwarding port conflicts with an existing inbound')
+        result['inbounds'] = retained + [listener]
+    else:
+        matches = [node for node in conf['v2node'] if node.get('domain') == settings['upstream']]
+        if len(matches) != 1:
+            fail('Forwarding upstream must identify exactly one node')
+        result = base()
+        result['inbounds'] = [listener]
+        result['outbounds'] = [vmess('forward', matches[0]), {'tag': 'direct', 'protocol': 'freedom', 'streamSettings': {'sockopt': dict(SOCKOPT)}}]
+    save(ROOT / owner / 'config.json', result, readable=mode == 'fwd0')
+
+
+def reverse(conf, client):
+    settings = conf['FORWARD']['Rproxy']['client' if client else 'server']
+    result = base()
+    rules = result['routing']['rules']
+    tunnel = settings['tunnel']
+    if client:
+        result['reverse'] = {'bridges': [{'tag': 'bridge', 'domain': 'reverse.localhost'}]}
+        rules.append({'type': 'field', 'inboundTag': ['bridge'], 'domain': ['full:reverse.localhost'], 'outboundTag': 'reverseTunnel'})
+        result['outbounds'] = [vmess('reverseTunnel', {'domain': tunnel['address'], 'uuid': tunnel['uuid']})]
+        seen = set()
+        if settings.get('mappingStatus') == 'on':
+            for index, item in enumerate(settings.get('mapping', [])):
+                external = port(item['extPort'])
+                proto = network(item['extProtocol'])
+                for value in proto.split(','):
+                    if (external, value) in seen:
+                        fail('Overlapping reverse client mapping')
+                    seen.add((external, value))
+                # A literal target prevents DNS changes from widening a private exception.
+                address = ipaddress.ip_address(text(item['intIP'], 'mapping IP'))
+                internal = port(item['intPort'])
+                tag = 'mapping' + str(index)
+                destination = '[%s]:%s' % (address, internal) if address.version == 6 else '%s:%s' % (address, internal)
+                rules.append({'type': 'field', 'inboundTag': ['bridge'], 'ip': ['127.0.0.1/32'], 'port': str(external), 'network': proto, 'outboundTag': tag})
+                result['outbounds'].append({'tag': tag, 'protocol': 'freedom', 'settings': {'redirect': destination, 'finalRules': [{'action': 'allow', 'ip': [str(address)], 'port': str(internal), 'network': proto}, {'action': 'block'}]}, 'streamSettings': {'sockopt': dict(SOCKOPT)}})
+        if settings.get('outStatus') == 'on':
+            rules.append({'type': 'field', 'inboundTag': ['bridge'], 'outboundTag': 'directOut'})
+            result['outbounds'].append({'tag': 'directOut', 'protocol': 'freedom', 'settings': {'finalRules': [{'action': 'block', 'ip': ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24', '192.168.0.0/16', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4', '::/128', '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8']}]}, 'streamSettings': {'sockopt': dict(SOCKOPT)}})
+        # An unmatched bridge request must never fall back to the tunnel outbound.
+        rules.append({'type': 'field', 'inboundTag': ['bridge'], 'outboundTag': 'blocked'})
+        result['outbounds'].append({'tag': 'blocked', 'protocol': 'blackhole'})
+        service = 'RproxyC'
+    else:
+        number = port(tunnel['port'])
+        users = [tunnel['uuid']]
+        if settings.get('inStatus') == 'on':
+            users.extend(entry['RproxyS0uuid'] for entry in settings.get('inUUID', []))
+        result['inbounds'] = [inbound('reverseTunnel', number, users)]
+        result['reverse'] = {'portals': [{'tag': 'portal', 'domain': 'reverse.localhost'}]}
+        rules.append({'type': 'field', 'inboundTag': ['reverseTunnel'], 'outboundTag': 'portal'})
+        bindings = [(number, 'tcp')]
+        if settings.get('mappingStatus') == 'on':
+            for index, item in enumerate(settings.get('mapping', [])):
+                number, proto = port(item['port']), network(item['protocol'])
+                bindings.extend((number, value) for value in proto.split(','))
+                tag = 'mapping' + str(index)
+                result['inbounds'].append({'tag': tag, 'port': number, 'protocol': 'dokodemo-door', 'settings': {'address': '127.0.0.1', 'port': number, 'network': proto}})
+                rules.append({'type': 'field', 'inboundTag': [tag], 'outboundTag': 'portal'})
+        free_ports(bindings, 'RproxyS')
+        service = 'RproxyS'
+    save(ROOT / service / 'config.json', result, readable=True)
+
+
+
+def main():
+    os.umask(0o077)
+    mode = sys.argv[1]
+    conf = load(ROOT / '0conf')
+    if mode in ('fwd0', 'fwd1'):
+        forwarding(conf, mode)
+    elif mode == 'fwd0stop':
+        filename = ROOT / 'vtrui/config.json'
+        result = load(filename)
+        result['inbounds'] = [item for item in result.get('inbounds', []) if item.get('tag') != 'forward0']
+        save(filename, result, readable=True)
+    elif mode in ('rproxyc', 'rproxys'):
+        reverse(conf, mode == 'rproxyc')
+    else:
+        fail('Unknown routing configuration operation')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError) as error:
+        print('Routing configuration rejected: ' + str(error), file=sys.stderr)
+        sys.exit(1)

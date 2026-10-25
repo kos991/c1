@@ -1,0 +1,45 @@
+#!/bin/bash
+# Privilege helper: download update binary from pinned trusted source
+# Called via ui-admin dispatcher only; reads /etc/de_GWD/update-source.json
+# Usage: (no arguments; root only)
+
+set -euo pipefail
+trap 'rm -f -- "${temp:-}"' EXIT
+
+fail() { printf 'ui-download-update-trusted: %s\n' "$*" >&2; exit 1; }
+
+[[ $EUID -eq 0 && $# -eq 0 ]] || fail 'Root-only, no arguments required.'
+
+# Verify pin configuration is root-owned, not writable by group/others
+pin_file=/etc/de_GWD/update-source.json
+[[ -f "$pin_file" && ! -L "$pin_file" ]] || fail 'Pinned update source not configured.'
+pin_stat=$(stat -c '%U:%G %a' "$pin_file") || fail 'Cannot stat pin configuration.'
+[[ "$pin_stat" == 'root:root 644' || "$pin_stat" == 'root:root 640' ]] || fail "Pin configuration has unsafe permissions: $pin_stat"
+
+# Read pinned source (jq fails safely if invalid JSON)
+url=$(jq -r '.url // empty' "$pin_file" 2>/dev/null | head -c 2048) || fail 'Invalid pin format.'
+sha256=$(jq -r '.sha256 // empty' "$pin_file" 2>/dev/null | head -c 64) || fail 'Invalid pin format.'
+
+[[ -n "$url" && -n "$sha256" ]] || fail 'Pinned source incomplete.'
+[[ "$url" =~ ^https:// ]] || fail 'Pinned URL must use HTTPS.'
+[[ "$sha256" =~ ^[0-9a-fA-F]{64}$ ]] || fail 'Pinned SHA256 invalid.'
+
+# Download to temporary file
+temp=$(mktemp /tmp/update-download.XXXXXXXX)
+
+# wget: --timeout includes connection + read, -t 1 single attempt, -L follow redirects
+if ! wget --timeout=30 -t 1 -L -O "$temp" "$url" 2>/dev/null; then
+  fail "Download failed: $url"
+fi
+
+# Verify SHA256
+digest=$(sha256sum "$temp" | cut -d' ' -f1)
+[[ "${digest,,}" == "${sha256,,}" ]] || fail "SHA256 mismatch: expected $sha256, got $digest"
+
+# Check file size (reasonable minimum)
+size=$(stat -c %s "$temp")
+[[ $size -gt 1000 ]] || fail "Downloaded file too small: $size bytes"
+
+# Atomically replace
+mv -- "$temp" /opt/de_GWD/update
+chmod 0755 /opt/de_GWD/update

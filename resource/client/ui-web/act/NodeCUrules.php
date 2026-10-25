@@ -2,8 +2,8 @@
 <?php if (isset($auth) && $auth) {?>
 <?php
 $conf = json_decode(file_get_contents('/opt/de_GWD/0conf'), true);
-$customDomain = $_GET['customDomain'];
-$customIP = $_GET['customIP'];
+$customDomain = gwd_string('customDomain');
+$customIP = gwd_string('customIP');
 
 $customDomain = explode("\n",$customDomain);
 $customDomain = array_filter(array_map('trim', $customDomain));
@@ -18,6 +18,6 @@ $conf['v2nodeDIV']['nodeCU']['rulesIP'] = $customIP;
 $newJsonString = json_encode($conf, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 file_put_contents('/opt/de_GWD/0conf', $newJsonString);
 
-exec('sudo /opt/de_GWD/ui-NodeCU r &');
+gwd_command('ui-NodeCU', [], true);
 ?>
 <?php }?>

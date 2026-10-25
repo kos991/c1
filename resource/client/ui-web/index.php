@@ -11,7 +11,7 @@
   <meta name="description" content="de_GWD">
   <meta name="author" content="JacyL4">
 
-<title>寒月</title>
+<title><?php echo gwd_h($config->address->alias); ?></title>
 
   <!-- Custom fonts for this template-->
   <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
@@ -24,6 +24,8 @@
 
   <!-- Bootstrap core JavaScript-->
   <script src="vendor/jquery/jquery.min.js"></script>
+  <script>window.gwdCsrfToken = <?php echo json_encode($_SESSION['csrf_token']); ?>;</script>
+  <script src="js/security.js"></script>
   <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 
   <!-- Core plugin JavaScript-->
@@ -35,12 +37,7 @@
 <?php $de_GWDconf = json_decode(file_get_contents('/opt/de_GWD/0conf')); ?>
 <?php $DoG = $de_GWDconf->dns->dog; ?>
 
-<?php $checkJellyfin = $de_GWDconf->app->jellyfin; ?>
-<?php $checkFileRun = file_exists('/var/www/html/filerun'); ?>
-<?php $checkBitwarden = $de_GWDconf->app->bitwarden; ?>
 
-<?php $FileRunWebConf = file_get_contents ('/etc/nginx/conf.d/filerun.conf'); preg_match_all('/(?<=\blisten )\S+/is', $FileRunWebConf, $FileRunPort); $FileRunPort = $FileRunPort[0][0] ?>
-<?php $WebConf = file_get_contents ('/etc/nginx/conf.d/default.conf'); preg_match_all('/(?<=\bserver_name )\S+/is', $WebConf, $serverName); $serverName = rtrim($serverName[0][0],";") ?>
   <nav class="navbar navbar-expand navbar-dark bg-dark static-top">
 
     <a class="navbar-brand mr-1" href="index.php">寒月</a>
@@ -49,7 +46,7 @@
     <button id="sidebarToggle" class="btn btn-link btn-sm text-white order-1 order-sm-0" href="#">
       <i class="fas fa-bars"></i>
     </button>
-<span class="float-right badge text-info"><?php passthru('sudo /opt/de_GWD/ui-checkEditionARM');?></span>
+<span class="float-right badge text-info"><?php echo gwd_h(gwd_command('ui-checkEditionARM'));?></span>
 
     <!-- Navbar Search -->
     <form class="d-none d-md-inline-block form-inline ml-auto mr-0 mr-md-3 my-2 my-md-0">
@@ -57,27 +54,6 @@
 
     <!-- Navbar -->
     <ul class="nav navbar-nav ml-auto ml-md-0">
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkFileRun === true) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(<?php if ($serverName != "de_GWD") echo "'https://$serverName:$FileRunPort'"; else echo "location.origin+':$FileRunPort'" ?>)">
-          <i class="fas fa-folder"></i>
-          <span>FileRun</span>
-        </a>
-      </li>
-
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkJellyfin === installed) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(location.origin+':8097')">
-          <i class="fab fa-youtube"></i>
-          <span>Jellyfin</span>
-        </a>
-      </li>
-
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkBitwarden === installed) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(location.origin+':8099')">
-          <i class="fas fa-shield-alt"></i>
-          <span>Bitwarden</span>
-        </a>
-      </li>
-      
       <li class="nav-item no-arrow mx-1">
         <a class="nav-link" href="/admin/" onclick="javascript:event.target.port=location.port" target="_blank">
           <i class="fab fa-raspberry-pi"></i>
@@ -102,16 +78,6 @@
         <a class="nav-link" href="forward.php">
           <i class="fas fa-project-diagram"></i>
           <span>中转</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ddns.php">
-          <i class="fas fa-ethernet"></i>
-          <span>DDNS & Wireguard</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="app.php">
-          <i class="fab fa-app-store-ios"></i>
-          <span>应用</span></a>
       </li>
       <li class="nav-item">
         <a class="nav-link" href="nodes.php">
@@ -202,7 +168,7 @@
               </div>
               <a class="card-footer text-white clearfix small z-1">
                 <span id="uptime" class="float-left"></span>
-                <span class="float-right"><?php $kernelV=exec('sudo uname -r'); echo str_replace("-arm64", "", str_replace("-amd64", "", $kernelV));?></span>
+                <span class="float-right"><?php $kernelV=gwd_command('kernelVersion'); echo gwd_h(str_replace("-arm64", "", str_replace("-amd64", "", $kernelV)));?></span>
               </a>
             </div>
           </div>
@@ -217,7 +183,7 @@
         <h5 id="markThisLabel" class="modal-title">备注本机</h5>
       </div>
       <div class="modal-body">
-        <input id="markName" type="text" class="form-control" placeholder="备注名" required="required" value="<?php echo $de_GWDconf->address->alias; ?>">
+        <input id="markName" type="text" class="form-control" placeholder="备注名" required="required" value="<?php echo gwd_h($de_GWDconf->address->alias); ?>">
       </div>
       <div class="modal-footer">
         <button id="buttonMarkThis" type="button" class="btn btn-outline-dark btn-sm">应用</button>
@@ -241,7 +207,7 @@
 <a class='dropdown-item' href='#' id='nodeSMyoutube0' onclick="buttonNodeSMyoutube(this)"> 默认代理 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMyoutube$num' onclick="buttonNodeSMyoutube(this)">$name</a>
@@ -262,7 +228,7 @@ EOT;
 <a class='dropdown-item' href='#' id='nodeSMnetflix0' onclick="buttonNodeSMnetflix(this)"> 默认代理 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMnetflix$num' onclick="buttonNodeSMnetflix(this)">$name</a>
@@ -285,7 +251,7 @@ EOT;
 <a class='dropdown-item' href='#' id='nodeSMhdh0' onclick="buttonNodeSMhdh(this)"> 默认代理 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMhdh$num' onclick="buttonNodeSMhdh(this)">$name</a>
@@ -306,7 +272,7 @@ EOT;
 <a class='dropdown-item' href='#' id='nodeSMtvb0' onclick="buttonNodeSMtvb(this)"> 默认代理 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMtvb$num' onclick="buttonNodeSMtvb(this)">$name</a>
@@ -327,7 +293,7 @@ EOT;
 <a class='dropdown-item' href='#' id='nodeSMbahamut0' onclick="buttonNodeSMbahamut(this)"> 默认代理 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMbahamut$num' onclick="buttonNodeSMbahamut(this)">$name</a>
@@ -348,7 +314,7 @@ EOT;
 <a class='dropdown-item' href='#' id='nodeSMopenai0' onclick="buttonNodeSMopenai(this)"> 默认代理 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMopenai$num' onclick="buttonNodeSMopenai(this)">$name</a>
@@ -369,7 +335,7 @@ EOT;
 <a class='dropdown-item' href='#' id='nodeSMapple0' onclick="buttonNodeSMapple(this)"> 直连 </a>
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   $num = $i+1;
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeSMapple$num' onclick="buttonNodeSMapple(this)">$name</a>
@@ -416,21 +382,21 @@ EOT;
   <div class="input-group-prepend">
     <span class="input-group-text">大陆白名单代理</span>
   </div>
-   <input id="CHNlistProxyIP" type="text" class="form-control" placeholder="本地局域网IP 空格分隔" value="<?php foreach ($de_GWDconf->v2nodeDIV->nodeDT->CHNlistProxyIP as $k => $v) {echo "$v ";} ?>">
+   <input id="CHNlistProxyIP" type="text" class="form-control" placeholder="本地局域网IP 空格分隔" value="<?php foreach ($de_GWDconf->v2nodeDIV->nodeDT->CHNlistProxyIP as $k => $v) {echo gwd_h($v) . " ";} ?>">
 </div>
 
 <div class="input-group input-group-sm mb-3">
   <div class="input-group-prepend">
     <span class="input-group-text">全局代理</span>
   </div>
-   <input id="globalProxyIP" type="text" class="form-control" placeholder="本地局域网IP 空格分隔" value="<?php foreach ($de_GWDconf->v2nodeDIV->nodeDT->globalProxyIP as $k => $v) {echo "$v ";} ?>">
+   <input id="globalProxyIP" type="text" class="form-control" placeholder="本地局域网IP 空格分隔" value="<?php foreach ($de_GWDconf->v2nodeDIV->nodeDT->globalProxyIP as $k => $v) {echo gwd_h($v) . " ";} ?>">
 </div>
 
 <div class="input-group input-group-sm">
   <div class="input-group-prepend">
     <span class="input-group-text">全局直连</span>
   </div>
-   <input id="directProxyIP" type="text" class="form-control" placeholder="本地局域网IP 空格分隔" value="<?php foreach ($de_GWDconf->v2nodeDIV->nodeDT->directProxyIP as $k => $v) {echo "$v ";} ?>">
+   <input id="directProxyIP" type="text" class="form-control" placeholder="本地局域网IP 空格分隔" value="<?php foreach ($de_GWDconf->v2nodeDIV->nodeDT->directProxyIP as $k => $v) {echo gwd_h($v) . " ";} ?>">
 </div>
 
       </div>
@@ -448,7 +414,7 @@ EOT;
   <div class="modal-dialog modal-sm modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-body">
-        <textarea id="nodeCUrulesDomain" class="form-control mb-2" rows="12"><?php $customDomainList = $de_GWDconf->v2nodeDIV->nodeCU->rulesDomain; foreach ( $customDomainList as $k => $v) {if (end($customDomainList) == $v) echo "$v"; else echo "$v\n";} ?></textarea>
+        <textarea id="nodeCUrulesDomain" class="form-control mb-2" rows="12"><?php $customDomainList = $de_GWDconf->v2nodeDIV->nodeCU->rulesDomain; foreach ( $customDomainList as $k => $v) {if (end($customDomainList) == $v) echo gwd_h($v); else echo gwd_h($v) . "\n";} ?></textarea>
         <div class="alert-light mb-4" role="alert">
         纯字符串: google.com<br>
         子域名: domain:google.com<br>
@@ -457,7 +423,7 @@ EOT;
         预定义域名列表: geosite:google<br>
         </div>
 
-        <textarea id="nodeCUrulesIP" class="form-control mb-2" rows="6"><?php $customDomainList = $de_GWDconf->v2nodeDIV->nodeCU->rulesIP; foreach ( $customDomainList as $k => $v) {if (end($customDomainList) == $v) echo "$v"; else echo "$v\n";} ?></textarea>
+        <textarea id="nodeCUrulesIP" class="form-control mb-2" rows="6"><?php $customDomainList = $de_GWDconf->v2nodeDIV->nodeCU->rulesIP; foreach ( $customDomainList as $k => $v) {if (end($customDomainList) == $v) echo gwd_h($v); else echo gwd_h($v) . "\n";} ?></textarea>
         <div class="alert-light" role="alert">
         使用非内网IP，非专用网络IP<br>
         IP: 104.24.0.0<br>
@@ -491,16 +457,16 @@ EOT;
         <div class="input-group-prepend ">
           <span class="input-group-text">地址</span>
         </div>
-          <input id="ssAddress" class="form-control" value="<?php echo $de_GWDconf->v2nodeDIV->ss->ssAddress; ?>">
+          <input id="ssAddress" class="form-control" value="<?php echo gwd_h($de_GWDconf->v2nodeDIV->ss->ssAddress); ?>">
         <div class="input-group-prepend input-group-append">
           <span class="input-group-text">端口</span>
         </div>
-          <input id="ssPort" class="form-control" value="<?php echo $de_GWDconf->v2nodeDIV->ss->ssPort; ?>">
+          <input id="ssPort" class="form-control" value="<?php echo gwd_h($de_GWDconf->v2nodeDIV->ss->ssPort); ?>">
         <div class="input-group-prepend input-group-append">
           <span class="input-group-text">加密方式</span>
         </div>
         <div class="input-group-prepend input-group-append">
-          <button id="ssMethod" class="btn btn-outline-secondary dropdown-toggle" type="button" data-toggle="dropdown" value="<?php echo $de_GWDconf->v2nodeDIV->ss->ssMethod; ?>"><?php echo $de_GWDconf->v2nodeDIV->ss->ssMethod; ?></button>
+          <button id="ssMethod" class="btn btn-outline-secondary dropdown-toggle" type="button" data-toggle="dropdown" value="<?php echo gwd_h($de_GWDconf->v2nodeDIV->ss->ssMethod); ?>"><?php echo gwd_h($de_GWDconf->v2nodeDIV->ss->ssMethod); ?></button>
           <div class="dropdown-menu">
             <a class='dropdown-item' href='#' id="ssAES256">AES-256-GCM</a>
             <a class='dropdown-item' href='#' id="ssAES128">AES-128-GCM</a>
@@ -510,7 +476,7 @@ EOT;
         <div class="input-group-prepend input-group-append">
           <span class="input-group-text">密码</span>
         </div>
-          <input id="ssSecure" class="form-control" value="<?php echo $de_GWDconf->v2nodeDIV->ss->ssSecure; ?>">
+          <input id="ssSecure" class="form-control" value="<?php echo gwd_h($de_GWDconf->v2nodeDIV->ss->ssSecure); ?>">
       </div>
       </div>
       <div class="modal-footer">
@@ -536,14 +502,14 @@ EOT;
                 <div class="card-header">
                   <span>黑名单域名：</span>
                 </div>
-                  <textarea id="listB" class="form-control" aria-label="listB" rows="12" placeholder="一行一个域名" style="border-Radius: 0px;"><?php foreach($de_GWDconf->dns->listB as $v) {echo "$v\n";} ?></textarea>
+                  <textarea id="listB" class="form-control" aria-label="listB" rows="12" placeholder="一行一个域名" style="border-Radius: 0px;"><?php foreach($de_GWDconf->dns->listB as $v) {echo gwd_h($v) . "\n";} ?></textarea>
               </div>
 
               <div class="card mt-3">
                 <div class="card-header">
                   <span>白名单域名：</span>
                 </div>
-                  <textarea id="listW" class="form-control" aria-label="listW" rows="12" placeholder="一行一个域名"><?php foreach($de_GWDconf->dns->listW as $v) {echo "$v\n";} ?></textarea>
+                  <textarea id="listW" class="form-control" aria-label="listW" rows="12" placeholder="一行一个域名"><?php foreach($de_GWDconf->dns->listW as $v) {echo gwd_h($v) . "\n";} ?></textarea>
               </div>
       </div>
       <div class="modal-footer">
@@ -580,7 +546,7 @@ EOT;
                   <span>预定义分流</span>
                 </button>
 
-                <button id="buttonSSdetail" type="button" class="btn <?php passthru('/opt/de_GWD/ui-checkNodeSS &'); ?> btn-sm mt-1 mr-2" style="border-radius: 0px;" data-toggle="modal" data-target="#ssDetail">
+                <button id="buttonSSdetail" type="button" class="btn <?php echo gwd_h(gwd_command('ui-checkNodeSS')); ?> btn-sm mt-1 mr-2" style="border-radius: 0px;" data-toggle="modal" data-target="#ssDetail">
                   <span>SS</span>
                 </button>
 
@@ -606,7 +572,7 @@ EOT;
     <div id="nodeDT" class="dropdown-menu">
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeDT$i' onclick="buttonNodeDT(this)">$name</a>
 EOT;
@@ -636,7 +602,7 @@ EOT;
     <div id="nodeCU" class="dropdown-menu">
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $name = $de_GWDconf->v2node[$i]->name;
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
 print <<<EOT
 <a class='dropdown-item' href='#' id='nodeCU$i' onclick="buttonNodeCU(this)">$name</a>
 EOT;
@@ -672,20 +638,20 @@ EOT;
                 </thead>
                 <tbody id="nodeTable">
 <?php
-  $checkNode = exec('/opt/de_GWD/ui-checkNode');
+  $checkNode = trim(gwd_command('ui-checkNode'));
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
   $nodeNUM = $i+1;
-  $domain = $de_GWDconf->v2node[$i]->domain;
-  $name = $de_GWDconf->v2node[$i]->name;
+  $domain = gwd_h($de_GWDconf->v2node[$i]->domain);
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
   if ( $checkNode != null && $checkNode == $i) $checkStatus = "btn-success"; else $checkStatus = "btn-outline-secondary";
 print <<<EOT
                   <tr> 
                     <td class="align-middle">$nodeNUM</td>
-                    <td class="align-middle"><span id="nodeDomain${i}">${domain}</span></td>
-                    <td class="text-left"><span id="nodeshow${i}">${name}</span></td>
-                    <td class="align-middle"><span id="ping${i}" class='text-success'></span></td>
-                    <td class="align-middle"><span id="speed${i}" class='text-success'><a href="javascript:void(0)" class="text-success" onclick="buttonSpeed(this)"><i class="far fa-play-circle fa-lg"></i></a></span></td>
-                    <td class="align-middle"><button id="switch${i}" type="button" class="btn $checkStatus btn-sm" onclick="buttonSwitch(this)">切换</button></td>
+                    <td class="align-middle"><span id="nodeDomain{$i}">{$domain}</span></td>
+                    <td class="text-left"><span id="nodeshow{$i}">{$name}</span></td>
+                    <td class="align-middle"><span id="ping{$i}" class='text-success'></span></td>
+                    <td class="align-middle"><span id="speed{$i}" class='text-success'><a href="javascript:void(0)" class="text-success" onclick="buttonSpeed(this)"><i class="far fa-play-circle fa-lg"></i></a></span></td>
+                    <td class="align-middle"><button id="switch{$i}" type="button" class="btn $checkStatus btn-sm" onclick="buttonSwitch(this)">切换</button></td>
                   </tr>
 EOT;
 }
@@ -722,7 +688,7 @@ EOT;
                 <div class="input-group-prepend">
                   <span class="input-group-text" style="min-width: 75px">DoH 1</span>
                 </div>
-                <input type="text" id="DoH1" class="form-control" placeholder="域名:端口/dq" required="required" value="<?php echo $de_GWDconf->dns->doh[0];?>">
+                <input type="text" id="DoH1" class="form-control" placeholder="域名:端口/dq" required="required" value="<?php echo gwd_h($de_GWDconf->dns->doh[0]);?>">
                 <div class="input-group-append">
                   <span id="pingDOH1" class="input-group-text text-success"></span><span class="input-group-text text-secondary">ms</span>
                 </div>
@@ -732,7 +698,7 @@ EOT;
                 <div class="input-group-prepend">
                   <span class="input-group-text" style="min-width: 75px">DoH 2</span>
                 </div>
-                <input type="text" id="DoH2" class="form-control" placeholder="域名:端口/dq" required="required" value="<?php echo $de_GWDconf->dns->doh[1];?>">
+                <input type="text" id="DoH2" class="form-control" placeholder="域名:端口/dq" required="required" value="<?php echo gwd_h($de_GWDconf->dns->doh[1]);?>">
                 <div class="input-group-append">
                   <span id="pingDOH2" class="input-group-text text-success"></span><span class="input-group-text text-secondary">ms</span>
                 </div>
@@ -742,7 +708,7 @@ EOT;
                 <div class="input-group-prepend">
                   <span class="input-group-text" style="min-width: 75px">DNS over gRPC</span>
                 </div>
-                <input type="text" id="DoGc" class="form-control" placeholder="域名:端口" required="required" value="<?php echo $DoG ?>" style="display:<?php if (empty($DoG) === false) echo 'block'; else echo 'none';?>">
+                <input type="text" id="DoGc" class="form-control" placeholder="域名:端口" required="required" value="<?php echo gwd_h($DoG) ?>" style="display:<?php if (empty($DoG) === false) echo 'block'; else echo 'none';?>">
                 <div id="DoGping" class="input-group-prepend input-group-append" style="display:<?php if (empty($DoG) === false) echo 'block'; else echo 'none';?>">
                   <span id="pingDoG" class="form-control input-group-text text-success"></span>
                 </div>
@@ -776,9 +742,9 @@ unset($dnsClist[0][$index]);
 }
 foreach(array_unique($dnsClist[0]) as $k => $v){
   if ($v == end($dnsClist[0]))
-    echo $v;
+    echo gwd_h($v);
   else
-    echo "$v\n";
+    echo gwd_h($v) . "\n";
 }
 ?></textarea>
                 </div>
@@ -790,7 +756,7 @@ foreach(array_unique($dnsClist[0]) as $k => $v){
                   静态<br>
                   </span>
                 </div>
-                  <textarea id="hostsCustomize" class="form-control" aria-label="hostsCustomize" rows="6" placeholder="IP 空格 abc.com &#10;IP 空格 *.abc.com"><?php passthru("sudo /opt/de_GWD/ui-hostsCustomize"); ?></textarea>
+                  <textarea id="hostsCustomize" class="form-control" aria-label="hostsCustomize" rows="6" placeholder="IP 空格 abc.com &#10;IP 空格 *.abc.com"><?php echo gwd_h(gwd_command('ui-hostsCustomize')); ?></textarea>
                 </div>
             </div>
 
@@ -813,7 +779,7 @@ foreach(array_unique($dnsClist[0]) as $k => $v){
                 <div class="form-row">
                 <div class="col-md-6">
                 <div class="input-group my-2">
-                  <input id="localip" type="text" class="form-control" placeholder="本机地址" required="required" value="<?php echo $de_GWDconf->address->localIP; ?>">
+                  <input id="localip" type="text" class="form-control" placeholder="本机地址" required="required" value="<?php echo gwd_h($de_GWDconf->address->localIP); ?>">
                 <div class="input-group-append">
                   <span class="input-group-text text-secondary">本机</span>
                 </div>
@@ -821,7 +787,7 @@ foreach(array_unique($dnsClist[0]) as $k => $v){
                 </div>
                 <div class="col-md-6">
                 <div class="input-group my-2">
-                  <input id="upstreamip" type="text" class="form-control" placeholder="上级地址" required="required" value="<?php echo $de_GWDconf->address->upstreamIP; ?>">
+                  <input id="upstreamip" type="text" class="form-control" placeholder="上级地址" required="required" value="<?php echo gwd_h($de_GWDconf->address->upstreamIP); ?>">
                 <div class="input-group-append">
                   <span class="input-group-text text-secondary">上级</span>
                 </div>
@@ -858,7 +824,7 @@ foreach(array_unique($dnsClist[0]) as $k => $v){
   <!-- /#wrapper -->
 <script>
 function checklink(){
-$.get('./act/testBaidu.php',function(data){
+$.post('./act/testBaidu.php',function(data){
 var checklink1 = data
 if ( $.trim(checklink1) == "ONLINE" ) {
 $('#testBaidu').text("✓ 国内线路畅通")
@@ -867,7 +833,7 @@ $('#testBaidu').text("✗ 国内线路不通")
 }
 })
 
-$.get('./act/testGlobal.php',function(data){
+$.post('./act/testGlobal.php',function(data){
 var checklink2 = data
 if ( $.trim(checklink2) == "ONLINE" ) {
 $('#testYoutue').text("✓ 国外线路畅通")
@@ -876,60 +842,59 @@ $('#testYoutue').text("✗ 国外线路不通")
 }
 })
 
-$.get("./act/version.php", function(data){
-var currentvernum = data.split("-")[0]
-var remotevernum = data.split("-")[1]
-var vera = $.trim(currentvernum)
-var verb = $.trim(remotevernum)
-$('#currentver').attr('class','btn btn-light').html(currentvernum+'本机')
-$('#remotever').attr('class','btn btn-light').html(remotevernum+' 发布')
-if (vera != verb) {
-$('#remotever').attr('class','btn btn-warning')
-}
-})
+$.post('./act/version.php', function(info){
+  $('#currentver').attr('class','btn btn-light').text(info.installed + ' 本机')
+  if (!info.published) {
+    $('#remotever').attr('class','btn btn-secondary').text('发布版本暂不可查')
+    return
+  }
+  $('#remotever').attr('class', info.updateAvailable ? 'btn btn-warning' : 'btn btn-light')
+    .attr('title', info.legacyPublished ? '远端仍为 +C1 历史发布标识；同一语义版本，当前改动尚未发布' : '')
+    .text(info.published + (info.legacyPublished ? ' 旧版发布' : ' 发布'))
+}, 'json')
 }
 
 function nodeDTswitch(nodeDTswitch){
 $("#buttonNodeDTloading").attr("class", "spinner-border spinner-border-sm")
-var nodeDTtext = $(nodeDTswitch).find('#nodeDTtext').html()
+var nodeDTtext = $(nodeDTswitch).find('#nodeDTtext').text()
 if (nodeDTtext == 'OFF'){
-$.get('./act/NodeDTswitch.php', {switchNodeDT:"NodeDThide"}, function(result){
+$.post('./act/NodeDTswitch.php', {switchNodeDT:"NodeDThide"}, function(result){
   $("#nodeDTlist").css("display", "none")
   $("#nodeDTiptext").css("display", "none")
   $("#nodeDTipButton").css("display", "none")
   $("#buttonNodeDTloading").removeClass()
-  $("#nodeDTtext").html("ON")
+  $("#nodeDTtext").text("ON")
 })
 }
 else {
-$.get('./act/NodeDTswitch.php', {switchNodeDT:"NodeDTshow"}, function(data){
+$.post('./act/NodeDTswitch.php', {switchNodeDT:"NodeDTshow"}, function(data){
   $("#nodeDTlist").css("display", "block")
   $("#nodeDTiptext").css("display", "block")
   $("#nodeDTipButton").css("display", "block")
   $("#buttonNodeDTloading").removeClass()
-  $("#nodeDTshow").html(data)
-  $("#nodeDTtext").html("OFF")
+  $("#nodeDTshow").text(data)
+  $("#nodeDTtext").text("OFF")
 })
 }
 }
 
 function nodeCUswitch(nodeCUswitch){
 $("#buttonNodeCUloading").attr("class", "spinner-border spinner-border-sm")
-var nodeCUtext = $(nodeCUswitch).find('#nodeCUtext').html()
+var nodeCUtext = $(nodeCUswitch).find('#nodeCUtext').text()
 if (nodeCUtext == 'OFF'){
-$.get('./act/NodeCUswitch.php', {switchNodeCU:"NodeCUhide"}, function(result){
+$.post('./act/NodeCUswitch.php', {switchNodeCU:"NodeCUhide"}, function(result){
   $("#nodeCUlist").css("display", "none")
   $("#nodeCUrulesButton").css("display", "none")
-  $("#nodeCUtext").html("ON")
+  $("#nodeCUtext").text("ON")
   $("#buttonNodeCUloading").removeClass()
 })
 }
 else {
-$.get('./act/NodeCUswitch.php', {switchNodeCU:"NodeCUshow"}, function(data){
+$.post('./act/NodeCUswitch.php', {switchNodeCU:"NodeCUshow"}, function(data){
   $("#nodeCUlist").css("display", "block")
   $("#nodeCUrulesButton").css("display", "block")
-  $('#nodeCUshow').html(data)
-  $("#nodeCUtext").html("OFF")
+  $('#nodeCUshow').text(data)
+  $("#nodeCUtext").text("OFF")
   $("#buttonNodeCUloading").removeClass()
 })
 }
@@ -940,7 +905,7 @@ var SPEEDobj = $(buttonSpeed).parent().parent().parent().parent().find('tr')
 var SPEEDindex = SPEEDobj.index($(buttonSpeed).parent().parent().parent()[0])
 $('#speed'+SPEEDindex).empty()
 $('#speed'+SPEEDindex).attr('class', 'cloud')
-$.get("./act/speedT.php", {speedT:SPEEDindex}, function(data){$('#speed'+SPEEDindex).attr('class', 'text-success'); $('#speed'+SPEEDindex).text(data)})
+$.post("./act/speedT.php", {speedT:SPEEDindex}, function(data){$('#speed'+SPEEDindex).attr('class', 'text-success'); $('#speed'+SPEEDindex).text(data)})
 }
 
 function buttonSwitch(buttonSwitch){
@@ -949,97 +914,97 @@ var SWITCHindex = SWITCHobj.index($(buttonSwitch).parent().parent()[0])
 $("#nodeTable td:nth-child(6) button").attr('class', "btn btn-outline-secondary btn-sm")
 $("#buttonSSdetail").attr('class','btn btn-outline-secondary btn-sm mt-1')
 $('#switch'+SWITCHindex).attr('class', 'btn btn-success btn-sm');
-$.get("./act/NodeChange.php", {nodenum:SWITCHindex}, function(){})
+$.post("./act/NodeChange.php", {nodenum:SWITCHindex}, function(){})
 }
 
 function buttonNodeSMyoutube(buttonNodeSMyoutube){
 var NodeSMyoutubeOBJ = $(buttonNodeSMyoutube).parent().find('a')
 var NodeSMyoutubeIndex = NodeSMyoutubeOBJ.index($(buttonNodeSMyoutube))
-var NodeSMyoutubeName = $('#nodeSMyoutube'+NodeSMyoutubeIndex).html()
-$('#nodeSMshowYoutube').html(NodeSMyoutubeName)
+var NodeSMyoutubeName = $('#nodeSMyoutube'+NodeSMyoutubeIndex).text()
+$('#nodeSMshowYoutube').text(NodeSMyoutubeName)
 $('#nodeSMshowYoutube').val(NodeSMyoutubeIndex)
 }
 
 function buttonNodeSMnetflix(buttonNodeSMnetflix){
 var NodeSMnetflixOBJ = $(buttonNodeSMnetflix).parent().find('a')
 var NodeSMnetflixIndex = NodeSMnetflixOBJ.index($(buttonNodeSMnetflix))
-var NodeSMnetflixName = $('#nodeSMnetflix'+NodeSMnetflixIndex).html()
-$('#nodeSMshowNetflix').html(NodeSMnetflixName)
+var NodeSMnetflixName = $('#nodeSMnetflix'+NodeSMnetflixIndex).text()
+$('#nodeSMshowNetflix').text(NodeSMnetflixName)
 $('#nodeSMshowNetflix').val(NodeSMnetflixIndex)
 }
 
 function buttonNodeSMhdh(buttonNodeSMhdh){
 var NodeSMhdhOBJ = $(buttonNodeSMhdh).parent().find('a')
 var NodeSMhdhIndex = NodeSMhdhOBJ.index($(buttonNodeSMhdh))
-var NodeSMhdhName = $('#nodeSMhdh'+NodeSMhdhIndex).html()
-$('#nodeSMshowHDH').html(NodeSMhdhName)
+var NodeSMhdhName = $('#nodeSMhdh'+NodeSMhdhIndex).text()
+$('#nodeSMshowHDH').text(NodeSMhdhName)
 $('#nodeSMshowHDH').val(NodeSMhdhIndex)
 }
 
 function buttonNodeSMtvb(buttonNodeSMtvb){
 var NodeSMtvbOBJ = $(buttonNodeSMtvb).parent().find('a')
 var NodeSMtvbIndex = NodeSMtvbOBJ.index($(buttonNodeSMtvb))
-var NodeSMtvbName = $('#nodeSMtvb'+NodeSMtvbIndex).html()
-$('#nodeSMshowTVB').html(NodeSMtvbName)
+var NodeSMtvbName = $('#nodeSMtvb'+NodeSMtvbIndex).text()
+$('#nodeSMshowTVB').text(NodeSMtvbName)
 $('#nodeSMshowTVB').val(NodeSMtvbIndex)
 }
 
 function buttonNodeSMbahamut(buttonNodeSMbahamut){
 var NodeSMbahamutOBJ = $(buttonNodeSMbahamut).parent().find('a')
 var NodeSMbahamutIndex = NodeSMbahamutOBJ.index($(buttonNodeSMbahamut))
-var NodeSMbahamutName = $('#nodeSMbahamut'+NodeSMbahamutIndex).html()
-$('#nodeSMshowBahamut').html(NodeSMbahamutName)
+var NodeSMbahamutName = $('#nodeSMbahamut'+NodeSMbahamutIndex).text()
+$('#nodeSMshowBahamut').text(NodeSMbahamutName)
 $('#nodeSMshowBahamut').val(NodeSMbahamutIndex)
 }
 
 function buttonNodeSMopenai(buttonNodeSMopenai){
 var NodeSMopenaiOBJ = $(buttonNodeSMopenai).parent().find('a')
 var NodeSMopenaiIndex = NodeSMopenaiOBJ.index($(buttonNodeSMopenai))
-var NodeSMopenaiName = $('#nodeSMopenai'+NodeSMopenaiIndex).html()
-$('#nodeSMshowOpenai').html(NodeSMopenaiName)
+var NodeSMopenaiName = $('#nodeSMopenai'+NodeSMopenaiIndex).text()
+$('#nodeSMshowOpenai').text(NodeSMopenaiName)
 $('#nodeSMshowOpenai').val(NodeSMopenaiIndex)
 }
 
 function buttonNodeSMapple(buttonNodeSMapple){
 var NodeSMappleOBJ = $(buttonNodeSMapple).parent().find('a')
 var NodeSMappleIndex = NodeSMappleOBJ.index($(buttonNodeSMapple))
-var NodeSMappleName = $('#nodeSMapple'+NodeSMappleIndex).html()
-$('#nodeSMshowApple').html(NodeSMappleName)
+var NodeSMappleName = $('#nodeSMapple'+NodeSMappleIndex).text()
+$('#nodeSMshowApple').text(NodeSMappleName)
 $('#nodeSMshowApple').val(NodeSMappleIndex)
 }
 
 function buttonNodeSMsteam(buttonNodeSMsteam){
 var NodeSMsteamOBJ = $(buttonNodeSMsteam).parent().find('a')
 var NodeSMsteamIndex = NodeSMsteamOBJ.index($(buttonNodeSMsteam))
-var NodeSMsteamName = $('#nodeSMsteam'+NodeSMsteamIndex).html()
-$('#nodeSMshowSteam').html(NodeSMsteamName)
+var NodeSMsteamName = $('#nodeSMsteam'+NodeSMsteamIndex).text()
+$('#nodeSMshowSteam').text(NodeSMsteamName)
 $('#nodeSMshowSteam').val(NodeSMsteamIndex)
 }
 
 function buttonNodeDT(buttonNodeDT){
 var NodeDTobj = $(buttonNodeDT).parent().find('a')
 var NodeDTindex = NodeDTobj.index($(buttonNodeDT))
-var NodeDTname = $('#nodeDT'+NodeDTindex).html()
-$('#nodeDTshow').html(NodeDTname)
-$.get("./act/NodeDTchange.php", {nodeDTnum:NodeDTindex}, function(){})
+var NodeDTname = $('#nodeDT'+NodeDTindex).text()
+$('#nodeDTshow').text(NodeDTname)
+$.post("./act/NodeDTchange.php", {nodeDTnum:NodeDTindex}, function(){})
 }
 
 function buttonNodeCU(buttonNodeCU){
 var NodeCUobj = $(buttonNodeCU).parent().find('a')
 var NodeCUindex = NodeCUobj.index($(buttonNodeCU))
-var NodeCUname = $('#nodeCU'+NodeCUindex).html()
-$('#nodeCUshow').html(NodeCUname)
-$.get("./act/NodeCUchange.php", {nodeCUnum:NodeCUindex}, function(){})
+var NodeCUname = $('#nodeCU'+NodeCUindex).text()
+$('#nodeCUshow').text(NodeCUname)
+$.post("./act/NodeCUchange.php", {nodeCUnum:NodeCUindex}, function(){})
 }
 
 $(function(){
 $('#buttonLogout').click(function(){
-$.get('auth.php', {logout:'true'}, function(result){window.location.href="index.php"})
+$.post('auth.php', {logout:'true'}, function(result){window.location.href="index.php"})
 })
 
 $('#buttonMarkThis').click(function(){
 markNametxt=$('#markName').val()
-$.get('./act/markThis.php', {markName:markNametxt}, function(result){window.location.reload()})
+$.post('./act/markThis.php', {markName:markNametxt}, function(result){window.location.reload()})
 })
 
 $('#currentver').click(function(){
@@ -1052,43 +1017,43 @@ window.open("https://t.me/de_GWD_info")
 
 $('#buttonProxyRestart').click(function(){
 $("#buttonProxyLoading").attr("class", "spinner-border spinner-border-sm ml-2")
-$.get('./act/proxyRestart.php', function(result){
+$.post('./act/proxyRestart.php', function(result){
   $("#buttonProxyLoading").removeClass()
 })
 })
 
 $('#buttonProxyStop').click(function(){
 $("#buttonProxyLoading").attr("class", "spinner-border spinner-border-sm ml-2")
-$.get('./act/proxyStop.php', function(result){
+$.post('./act/proxyStop.php', function(result){
   $("#buttonProxyLoading").removeClass()
 })
 })
 
 $('#buttonPingTCP').click(function(){
 $('#nodeTable tr').each(function(i){
-$.get("./act/pingTCP.php", {pingTCP:i}, function(data){ $('#ping'+i).text(data) })
+$.post("./act/pingTCP.php", {pingTCP:i}, function(data){ $('#ping'+i).text(data) })
 })
-$.get("./act/pingTCPDOH1.php", function(data) { $('#pingDOH1').text(data) })
-$.get("./act/pingTCPDOH2.php", function(data) { $('#pingDOH2').text(data) })
-$.get("./act/pingTCPDoG.php", function(data) { $('#pingDoG').text(data) })
+$.post("./act/pingTCPDOH1.php", function(data) { $('#pingDOH1').text(data) })
+$.post("./act/pingTCPDOH2.php", function(data) { $('#pingDOH2').text(data) })
+$.post("./act/pingTCPDoG.php", function(data) { $('#pingDoG').text(data) })
 })
 
 $('#submitNodeSMrulesClear').click(function(){
-$('#nodeSMshowYoutube').html(' 默认代理 ')
+$('#nodeSMshowYoutube').text(' 默认代理 ')
 $('#nodeSMshowYoutube').val('0')
-$('#nodeSMshowNetflix').html(' 默认代理 ')
+$('#nodeSMshowNetflix').text(' 默认代理 ')
 $('#nodeSMshowNetflix').val('0')
-$('#nodeSMshowHDH').html(' 默认代理 ')
+$('#nodeSMshowHDH').text(' 默认代理 ')
 $('#nodeSMshowHDH').val('0')
-$('#nodeSMshowTVB').html(' 默认代理 ')
+$('#nodeSMshowTVB').text(' 默认代理 ')
 $('#nodeSMshowTVB').val('0')
-$('#nodeSMshowBahamut').html(' 默认代理 ')
+$('#nodeSMshowBahamut').text(' 默认代理 ')
 $('#nodeSMshowBahamut').val('0')
-$('#nodeSMshowOpenai').html(' 默认代理 ')
+$('#nodeSMshowOpenai').text(' 默认代理 ')
 $('#nodeSMshowOpenai').val('0')
-$('#nodeSMshowApple').html(' 直连 ')
+$('#nodeSMshowApple').text(' 直连 ')
 $('#nodeSMshowApple').val('0')
-$('#nodeSMshowSteam').html(' 直连 ')
+$('#nodeSMshowSteam').text(' 直连 ')
 $('#nodeSMshowSteam').val('0')
 })
 
@@ -1102,7 +1067,7 @@ nodeSMshowBahamut=$('#nodeSMshowBahamut').val()
 nodeSMshowOpenai=$('#nodeSMshowOpenai').val()
 nodeSMshowApple=$('#nodeSMshowApple').val()
 nodeSMshowSteam=$('#nodeSMshowSteam').val()
-$.get('./act/NodeSMrules.php', {nodeSMshowYoutube:nodeSMshowYoutube, nodeSMshowNetflix:nodeSMshowNetflix, nodeSMshowHDH:nodeSMshowHDH, nodeSMshowTVB:nodeSMshowTVB, nodeSMshowBahamut:nodeSMshowBahamut, nodeSMshowOpenai:nodeSMshowOpenai, nodeSMshowApple:nodeSMshowApple, nodeSMshowSteam:nodeSMshowSteam}, function(result){
+$.post('./act/NodeSMrules.php', {nodeSMshowYoutube:nodeSMshowYoutube, nodeSMshowNetflix:nodeSMshowNetflix, nodeSMshowHDH:nodeSMshowHDH, nodeSMshowTVB:nodeSMshowTVB, nodeSMshowBahamut:nodeSMshowBahamut, nodeSMshowOpenai:nodeSMshowOpenai, nodeSMshowApple:nodeSMshowApple, nodeSMshowSteam:nodeSMshowSteam}, function(result){
   $("#submitNodeSMrulesLoading").removeClass()
   $("#nodeSMrules").modal('hide')
   window.location.reload()
@@ -1111,7 +1076,7 @@ $.get('./act/NodeSMrules.php', {nodeSMshowYoutube:nodeSMshowYoutube, nodeSMshowN
 
 $('#buttonclearDIV').click(function(){
 $("#buttonclearDIVloading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/NodeOne.php', function(result){
+$.post('./act/NodeOne.php', function(result){
   $("#buttonclearDIVloading").removeClass()
   window.location.reload()
 })
@@ -1122,7 +1087,7 @@ $("#buttonNodeDTrulesloading").attr("class", "spinner-border spinner-border-sm")
 CHNlistProxyIP=$('#CHNlistProxyIP').val()
 globalProxyIP=$('#globalProxyIP').val()
 directProxyIP=$('#directProxyIP').val()
-$.get('./act/NodeDTrules.php', {CHNlistProxyIP:CHNlistProxyIP, globalProxyIP:globalProxyIP, directProxyIP:directProxyIP}, function(result){
+$.post('./act/NodeDTrules.php', {CHNlistProxyIP:CHNlistProxyIP, globalProxyIP:globalProxyIP, directProxyIP:directProxyIP}, function(result){
   $("#buttonNodeDTrulesloading").removeClass()
   $("#nodeDTrules").modal('hide')
 })
@@ -1132,30 +1097,30 @@ $('#buttonNodeCUrules').click(function(){
 $("#buttonNodeCUrulesloading").attr("class", "spinner-border spinner-border-sm")
 customDomain=$('#nodeCUrulesDomain').val()
 customIP=$('#nodeCUrulesIP').val()
-$.get('./act/NodeCUrules.php', {customDomain:customDomain, customIP:customIP}, function(result){
+$.post('./act/NodeCUrules.php', {customDomain:customDomain, customIP:customIP}, function(result){
   $("#buttonNodeCUrulesloading").removeClass()
   $("#nodeCUrules").modal('hide')
 })
 })
 
 $('#ssAES256').click(function(){
-$('#ssMethod').html("AES-256-GCM")
+$('#ssMethod').text("AES-256-GCM")
 $('#ssMethod').val("aes-256-gcm")
 })
 
 $('#ssAES128').click(function(){
-$('#ssMethod').html("AES-128-GCM")
+$('#ssMethod').text("AES-128-GCM")
 $('#ssMethod').val("aes-128-gcm")
 })
 
 $('#ssChaCha20').click(function(){
-$('#ssMethod').html("ChaCha20-IETF-Poly1305")
+$('#ssMethod').text("ChaCha20-IETF-Poly1305")
 $('#ssMethod').val("chacha20-ietf-poly1305")
 })
 
 $('#buttonSSclear').click(function(){
 $("#buttonSSclearloading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/changeNodeSS0.php', function(result){
+$.post('./act/changeNodeSS0.php', function(result){
   $("#buttonSSclearloading").removeClass()
   window.location.reload()
 })
@@ -1167,7 +1132,7 @@ ssAddress=$('#ssAddress').val()
 ssPort=$('#ssPort').val()
 ssMethod=$('#ssMethod').val()
 ssSecure=$('#ssSecure').val()
-$.get('./act/changeNodeSS.php', {ssAddress:ssAddress, ssPort:ssPort, ssMethod:ssMethod, ssSecure:ssSecure}, function(result){
+$.post('./act/changeNodeSS.php', {ssAddress:ssAddress, ssPort:ssPort, ssMethod:ssMethod, ssSecure:ssSecure}, function(result){
   $("#buttonSSsubmitloading").removeClass()
   $("#ssDetail").modal('hide')
   $("#buttonSSdetail").attr('class','btn btn-success btn-sm mt-1')
@@ -1186,7 +1151,7 @@ $('#buttonListBWurl').click(function(){
 $("#buttonListBWurlloading").attr("class", "spinner-border spinner-border-sm")
 listB=$("#listB").val()
 listW=$("#listW").val()
-$.get("./act/submitListBW.php", {listB:listB, listW:listW}, function(result){
+$.post("./act/submitListBW.php", {listB:listB, listW:listW}, function(result){
   $("#buttonListBWurlloading").removeClass()
   $("#editListBW").modal('hide')
 })
@@ -1197,17 +1162,17 @@ $("#adBlist").val("")
 })
 
 $('#adBregexLoad').click(function(){
-var adBregexLoadDefault=$.ajax({url:"/act/adBregexDefault",async:false,cache:false})
+var adBregexLoadDefault=$.ajax({method:"POST",url:"/act/adBregexDefault",async:false,cache:false})
 $("#adBregex").val(adBregexLoadDefault.responseText)
 })
 
 $('#adWlistLoad').click(function(){
-var adWlistLoadDefault=$.ajax({url:"/act/adWlistDefault",async:false,cache:false})
+var adWlistLoadDefault=$.ajax({method:"POST",url:"/act/adWlistDefault",async:false,cache:false})
 $("#adWlist").val(adWlistLoadDefault.responseText)
 })
 
 $('#adWregexLoad').click(function(){
-var adWregexLoadDefault=$.ajax({url:"/act/adWregexDefault",async:false,cache:false})
+var adWregexLoadDefault=$.ajax({method:"POST",url:"/act/adWregexDefault",async:false,cache:false})
 $("#adWregex").val(adWregexLoadDefault.responseText)
 })
 
@@ -1218,7 +1183,7 @@ doh1txt=$('#DoH1').val()
 doh2txt=$('#DoH2').val()
 dnsChina=$("#dnsChina").val()
 hostsCustomize=$("#hostsCustomize").val()
-$.get("./act/DNSsave.php", {DoGc:DoGc, DoH1:doh1txt, DoH2:doh2txt, dnsChina:dnsChina, hostsCustomize:hostsCustomize}, function(result){
+$.post("./act/DNSsave.php", {DoGc:DoGc, DoH1:doh1txt, DoH2:doh2txt, dnsChina:dnsChina, hostsCustomize:hostsCustomize}, function(result){
   $("#buttonDNSsubmitloading").removeClass()
   window.location.reload()
 })
@@ -1227,35 +1192,35 @@ $.get("./act/DNSsave.php", {DoGc:DoGc, DoH1:doh1txt, DoH2:doh2txt, dnsChina:dnsC
 $('#buttonReboot').click(function(){
 staticip1=$('#localip').val()
 staticip2=$('#upstreamip').val()
-$.get('./act/reboot.php', {localip:staticip1, upstreamip:staticip2}, function(result){window.location.reload()})
+$.post('./act/reboot.php', {localip:staticip1, upstreamip:staticip2}, function(result){window.location.reload()})
 })
 
 setInterval(function() {
 checklink()
 }, 1800)
 
-$.get('./act/uptime.php', function(data){$('#uptime').text(data)})
+$.post('./act/uptime.php', function(data){$('#uptime').text(data)})
 
-$.get('./act/NodeDTcheck.php', function(data){
+$.post('./act/NodeDTcheck.php', function(data){
 if(data != "") {
-  $('#nodeDTshow').html(data)
+  $('#nodeDTshow').text(data)
   $("#nodeDTlist").css("display", "block")
   $("#nodeDTiptext").css("display", "block")
   $("#nodeDTipButton").css("display", "block")
-  $("#nodeDTtext").html("OFF")
+  $("#nodeDTtext").text("OFF")
 }
 })
 
-$.get('./act/NodeCUcheck.php', function(data){
+$.post('./act/NodeCUcheck.php', function(data){
 if(data != "") {
-  $('#nodeCUshow').html(data)
+  $('#nodeCUshow').text(data)
   $("#nodeCUlist").css("display", "block")
   $("#nodeCUrulesButton").css("display", "block")
-  $("#nodeCUtext").html("OFF")
+  $("#nodeCUtext").text("OFF")
 }
 })
 
-$.get('./act/NodeSMcheck.php', function(data){
+$.post('./act/NodeSMcheck.php', function(data){
 let SMarray = data.split("\n")
 let youtubeNum = SMarray[0]
 let youtubeName = SMarray[1]
@@ -1299,21 +1264,21 @@ if (steamName == "-none-") {
 }
 
 $('#nodeSMshowYoutube').val(youtubeNum)
-$('#nodeSMshowYoutube').html(youtubeName)
+$('#nodeSMshowYoutube').text(youtubeName)
 $('#nodeSMshowNetflix').val(netflixNum)
-$('#nodeSMshowNetflix').html(netflixName)
+$('#nodeSMshowNetflix').text(netflixName)
 $('#nodeSMshowHDH').val(hdhNum)
-$('#nodeSMshowHDH').html(hdhName)
+$('#nodeSMshowHDH').text(hdhName)
 $('#nodeSMshowTVB').val(tvbNum)
-$('#nodeSMshowTVB').html(tvbName)
+$('#nodeSMshowTVB').text(tvbName)
 $('#nodeSMshowBahamut').val(bahamutNum)
-$('#nodeSMshowBahamut').html(bahamutName)
+$('#nodeSMshowBahamut').text(bahamutName)
 $('#nodeSMshowOpenai').val(openaiNum)
-$('#nodeSMshowOpenai').html(openaiName)
+$('#nodeSMshowOpenai').text(openaiName)
 $('#nodeSMshowApple').val(appleNum)
-$('#nodeSMshowApple').html(appleName)
+$('#nodeSMshowApple').text(appleName)
 $('#nodeSMshowSteam').val(steamNum)
-$('#nodeSMshowSteam').html(steamName)
+$('#nodeSMshowSteam').text(steamName)
 })
 })
 </script>

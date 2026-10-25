@@ -1,7 +1,7 @@
 <?php require_once('../auth.php'); ?>
 <?php if (isset($auth) && $auth) {?>
 <?php
-$FWD0index = $_GET['FWD0index'];
+$FWD0index = gwd_integer('FWD0index', 1, 2147483647);
 
 $de_GWDconf = json_decode(file_get_contents('/opt/de_GWD/0conf'));
 $serverDomain = $de_GWDconf->address->serverName;

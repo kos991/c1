@@ -1,6 +1,6 @@
 <?php require_once('../auth.php'); ?>
 <?php if (isset($auth) && $auth) {?>
 <?php
-passthru('sudo /opt/de_GWD/ui-check_ssl &');
+echo gwd_command('ui-check_ssl');
 ?>
 <?php }?>

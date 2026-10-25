@@ -1,14 +1,14 @@
 <?php require_once('../auth.php'); ?>
 <?php if (isset($auth) && $auth) {?>
 <?php
-$switchNodeCU = $_GET['switchNodeCU'];
+$switchNodeCU = gwd_string('switchNodeCU');
 if ($switchNodeCU == "NodeCUshow"){
-    exec('sudo /opt/de_GWD/ui-NodeCU r &');
+    gwd_command('ui-NodeCU', [], true);
 }
 elseif ($switchNodeCU == "NodeCUhide"){
-    exec('sudo /opt/de_GWD/ui-NodeCUhide r &');
+    gwd_command('ui-NodeCUhide', [], true);
 }
 
-passthru('sudo /opt/de_GWD/ui-NodeCUcheck &');
+echo gwd_command('ui-NodeCUcheck');
 ?>
 <?php }?>

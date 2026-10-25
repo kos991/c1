@@ -1,0 +1,97 @@
+#!/bin/bash
+# Common DNS configuration operations. Sourced by root-only ui-script entry points.
+GWD_ROOT=/opt/de_GWD
+
+# Replace only the named CoreDNS block. The other block (DoG client/server) survives.
+gwd_coredns_block() {
+    local name=$1 body=$2 file="$GWD_ROOT/coredns/corefile" old next
+    mkdir -p "$GWD_ROOT/coredns"
+    touch "$file"
+    old=$(cat "$file")
+    next=$(printf '%s\n' "$old" | sed "/^# ${name}_START$/,/^# ${name}_END$/d")
+    next=${next%$'\n'}
+    if [[ -n $body ]]; then
+        next="${next:+$next$'\n'}$body"
+    fi
+    if [[ $next != "$old" ]]; then
+        printf '%s\n' "$next" >"$file"
+        chmod 0644 "$file"
+        if [[ -n $next ]]; then
+            systemctl enable coredns >/dev/null 2>&1
+            systemctl restart coredns
+        else
+            systemctl disable coredns >/dev/null 2>&1
+            systemctl stop coredns
+        fi
+    fi
+}
+
+gwd_resolve_dns_ip() {
+    local host=$1 ip
+    [[ $host =~ ^[a-zA-Z0-9.-]+$ && $host != .* && $host != *..* ]] || return 1
+    while IFS= read -r ip; do
+        if [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ && $ip != 127.* ]]; then
+            printf '%s' "$ip"
+            return 0
+        fi
+    done < <(dig @127.0.0.1 "$host" -4 -p 5331 +short)
+    return 1
+}
+
+# A DoH endpoint is host[:port]/path, with the path optional (SmartDNS default).
+gwd_doh_server() {
+    local endpoint=$1 ip=$2 authority host port path url
+    local host_re='^[a-zA-Z0-9.-]+$' port_re='^[0-9]{1,5}$' path_re='^[a-zA-Z0-9/_?&=%.-]+$'
+    [[ $endpoint && $endpoint != *[$'\r\n\t ']* ]] || return 1
+    authority=${endpoint%%/*}
+    host=${authority%%:*}
+    port=${authority#*:}
+    [[ $authority == *:* ]] || port=443
+    path=${endpoint#*/}
+    [[ $endpoint == */* ]] || path=dns-query
+    [[ $host =~ $host_re && $port =~ $port_re && $path =~ $path_re ]] || return 1
+    (( port >= 1 && port <= 65535 )) || return 1
+    [[ $ip =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+    url="https://$ip"
+    [[ $port == 443 ]] || url+=":$port"
+    printf 'server-https %s/%s -host-name %s -http-host %s -tls-host-verify %s -group DNS_global -exclude-default-group\n' "$url" "$path" "$host" "$host" "$host"
+}
+
+gwd_pihole_upstream() {
+    local port=$1
+    [[ $port == 5331 || $port == 5341 ]] || return 1
+    python3 - "$port" <<'PY'
+import os
+import sys
+import toml
+
+path = '/opt/de_GWD/pihole/pihole.toml'
+stat = os.stat(path)
+with open(path) as source:
+    data = toml.load(source)
+data['dns']['upstreams'] = [f'127.0.0.1#{sys.argv[1]}'] * 2
+with open(path, 'w') as target:
+    toml.dump(data, target)
+os.chown(path, stat.st_uid, stat.st_gid)
+os.chmod(path, 0o640)
+PY
+    docker restart pihole >/dev/null
+}
+
+gwd_resolver_local() {
+    # Keep resolvconf's managed interfaces and /etc/resolv.conf symlink intact.
+    if [[ -d /etc/resolvconf/resolv.conf.d ]]; then
+        printf 'nameserver 127.0.0.1\n' >/etc/resolvconf/resolv.conf.d/base
+        resolvconf -u
+    fi
+}
+
+gwd_update_dns_set() {
+    local set_name=$1 list_file=$2
+    if nft list set ip de_GWD "$set_name" >/dev/null 2>&1; then
+        nft flush set ip de_GWD "$set_name"
+        if [[ -s $list_file ]]; then
+            nft add element ip de_GWD "$set_name" "{ $(cat "$list_file") }"
+        fi
+    fi
+}

@@ -9,7 +9,7 @@ CYAN='\E[1;36m'
 WHITE='\E[1;37m'
 cRES='\E[0m'
 
-chmod 777 /tmp
+chmod 1777 /tmp
 architecture=$(dpkg --print-architecture)
 export DEBIAN_FRONTEND=noninteractive
 TTYD_Ver="1.7.3"
@@ -108,7 +108,7 @@ Freeze_Package+=($(dpkg -l | grep 'linux-image-' | awk '{print $2}'))
 Freeze_Package+=($(dpkg -l | grep 'linux-headers-' | awk '{print $2}'))
 Freeze_Package+=($(dpkg -l | grep 'linux-dtb-' | awk '{print $2}'))
 echo ${Freeze_Package[@]} | xargs -n1 apt-mark hold
-apt update && apt install apparmor apparmor-utils google-perftools
+apt update && apt install apparmor apparmor-utils
 fi
 
 [[ -n $(dpkg -l | awk '{print$2}' | grep '^ipset$') ]] && apt remove --purge ipset
@@ -144,7 +144,14 @@ unset aptPKG
 }
 
 pkgDEP2(){
-curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor --yes -o /usr/share/keyrings/docker-archive-keyring.gpg
+if [[ ! -s /usr/share/keyrings/docker-archive-keyring.gpg ]]; then
+    local keyfile
+    keyfile=$(mktemp) || return 1
+    curl -fsSL -o "$keyfile" https://download.docker.com/linux/debian/gpg || { rm -f "$keyfile"; return 1; }
+    gpg --dearmor --yes -o "$keyfile.gpg" "$keyfile" || { rm -f "$keyfile" "$keyfile.gpg"; return 1; }
+    install -m 0644 "$keyfile.gpg" /usr/share/keyrings/docker-archive-keyring.gpg
+    rm -f "$keyfile" "$keyfile.gpg"
+fi
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/debian $(. /etc/os-release; printf '%s' "$VERSION_CODENAME") stable" >/etc/apt/sources.list.d/docker.list
 
 
@@ -161,66 +168,33 @@ unset aptPKG
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^sqlite3$') ]] && aptPKG+=(sqlite3)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^libbrotli1') ]] && aptPKG+=(libbrotli1)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^libcrypt1') ]] && aptPKG+=(libcrypt1)
-[[ $architecture = arm64 ]] && aptPKG+=(google-perftools)
-[[ -n $aptPKG ]] && apt update && apt install $(echo ${aptPKG[@]})
-installNginxAllocator
-installSecurePHP
-}
-
-installSecurePHP(){
-# Sury 7.4.33-31 backports CVE-2026-109618 and CVE-2026-109619.
-local minimum='1:7.4.33-31'
-local package status version source
-local -a packages=(php7.4-common php7.4-cli php7.4-fpm php7.4-cgi php7.4-sqlite3 php7.4-xml php7.4-intl php7.4-json php7.4-opcache)
-local -a upgrade=()
-
-# Only php7.4 source packages share this security revision; PECL extensions use other versions.
-while read -r package status version source; do
-    [[ $status = installed && $source = php7.4 ]] && packages+=("$package")
-done < <(dpkg-query -W -f='${binary:Package} ${db:Status-Status} ${Version} ${source:Package}\n' 'php7.4*' 2>/dev/null)
-mapfile -t packages < <(printf '%s\n' "${packages[@]}" | sort -u)
-
-for package in "${packages[@]}"; do
-    read -r status version < <(dpkg-query -W -f='${db:Status-Status} ${Version}\n' "$package" 2>/dev/null)
-    if [[ $status != installed ]] || ! dpkg --compare-versions "$version" ge "$minimum"; then
-        upgrade+=("$package")
-    fi
-done
-
-if (( ${#upgrade[@]} )); then
-    apt-get update && apt-get install -y "${packages[@]}" || exit 1
-fi
-
-for package in "${packages[@]}"; do
-    read -r status version < <(dpkg-query -W -f='${db:Status-Status} ${Version}\n' "$package" 2>/dev/null)
-    if [[ $status != installed ]] || ! dpkg --compare-versions "$version" ge "$minimum"; then
-        echo "PHP security update required: $package must be Sury $minimum or newer (CVE-2026-109618, CVE-2026-109619)." >&2
-        exit 1
-    fi
-done
-
-# Replace all workers; an upgraded file on disk does not patch a running process.
-systemctl restart php7.4-fpm || exit 1
-}
-
-installNginxAllocator(){
-[[ $architecture != amd64 ]] && return 0
-dpkg-query -W -f='${Status}' libmimalloc2.0 2>/dev/null | grep -q '^install ok installed$' && return 0
-if [[ $debianCodename = trixie ]]; then
-    # The bundled amd64 nginx needs SONAME libmimalloc.so.2, not .so.3.
+[[ -n $aptPKG ]] && apt update && apt install "${aptPKG[@]}"
+installNativePHP || return 1
+if [[ $architecture == amd64 && $debianCodename == trixie ]] && ! ldconfig -p | grep -q 'libmimalloc.so.2 '; then
     local package
-    package=$(mktemp /tmp/de-gwd-mimalloc.XXXXXX.deb) || exit 1
-    if ! curl -fsSLo "$package" https://deb.debian.org/debian/pool/main/m/mimalloc/libmimalloc2.0_2.0.9+ds-2_amd64.deb ||
-       ! echo "a20035605a532be3186f0f48607c7106fe2a5551066c29de663c965692c446c4  $package" | sha256sum -c -; then
-        rm -f "$package"
-        echo 'Nginx libmimalloc2.0 download or checksum failed' >&2
-        exit 1
-    fi
-    apt install -y "$package" || { rm -f "$package"; exit 1; }
+    package=$(mktemp --suffix=.deb) || return 1
+    curl -fsSL -o "$package" 'https://deb.debian.org/debian/pool/main/m/mimalloc/libmimalloc2.0_2.0.9+ds-2_amd64.deb' || { rm -f "$package"; return 1; }
+    echo "a20035605a532be3186f0f48607c7106fe2a5551066c29de663c965692c446c4  $package" | sha256sum -c - || { rm -f "$package"; return 1; }
+    dpkg -i "$package" || { rm -f "$package"; return 1; }
     rm -f "$package"
-else
-    apt install -y libmimalloc2.0 || exit 1
 fi
+}
+
+phpVersionForDebian(){
+case $debianCodename in
+  trixie) echo 8.4 ;;
+  bookworm) echo 8.2 ;;
+  *) echo "Unsupported Debian release: $debianCodename (supported: bookworm, trixie)" >&2; return 1 ;;
+esac
+}
+
+
+installNativePHP(){
+local phpVersion
+phpVersion=$(phpVersionForDebian) || return 1
+rm -f /etc/apt/sources.list.d/php.list
+apt-get update && apt-get install -y "php${phpVersion}-cli" "php${phpVersion}-fpm" "php${phpVersion}-cgi" "php${phpVersion}-sqlite3" "php${phpVersion}-xml" "php${phpVersion}-intl" "php${phpVersion}-opcache" "php${phpVersion}-zip" "php${phpVersion}-mbstring" "php${phpVersion}-mysql" "php${phpVersion}-curl" "php${phpVersion}-gd" || return 1
+update-alternatives --set php "/usr/bin/php${phpVersion}" || return 1
 }
 
 checkSum(){
@@ -261,39 +235,32 @@ fi
 
 [[ -z $(unzip -tq /opt/de_GWD/.repo/de_GWD.zip | grep "No errors detected in compressed data") ]] && echo -e "${WHITE}de_GWD Zip${RED} Download Failed${cRES}" && exit
 
-cat << "EOF" >/opt/de_GWD/tcpTime
-#!/bin/bash
-echo
-date -s "$(curl -sI aliyun.com| grep -i '^date:'|cut -d' ' -f2-)"
-[[ $? -ne "0" ]] && date -s "$(wget -qSO- --max-redirect=0 --dns-timeout=3 baidu.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
-hwclock -w
-echo
-EOF
-chmod +x /opt/de_GWD/tcpTime
-/opt/de_GWD/tcpTime
 }
 
 
 
 repoDL(){
 echo -e "${WHITE}[...]\c" && echo -e "\t${WHITE}Repo Download${cRES}\r\c"
-sha256sum_nginx=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/$branch/resource/nginx/nginx_"$architecture".sha256sum)
-sha256sum_nginxConf=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/$branch/resource/nginx/nginxConf.zip.sha256sum)
-sha256sum_client=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/$branch/resource/client/Archive.zip.sha256sum)
-
-if [[ $(checkSum /usr/sbin/nginx $sha256sum_nginx) = "false" ]]; then
-rm -rf /tmp/nginx
-wget --show-progress -cqO /tmp/nginx https://raw.githubusercontent.com/kos991/c1/$branch/resource/nginx/nginx_"$architecture"
-[[ $(checkSum /tmp/nginx $sha256sum_nginx) = "false" ]] && echo -e "${WHITE}NGINX Core${RED} Download Failed${cRES}" && exit
-[[ $(checkSum /tmp/nginx $sha256sum_nginx) = "true" ]] && mv -f /tmp/nginx /usr/sbin/nginx && chmod +x /usr/sbin/nginx
-fi
-
-if [[ $(checkSum /opt/de_GWD/.repo/nginxConf.zip $sha256sum_nginxConf) = "false" ]]; then
-rm -rf /tmp/nginxConf.zip
-wget --show-progress -cqO /tmp/nginxConf.zip https://raw.githubusercontent.com/kos991/c1/$branch/resource/nginx/nginxConf.zip
-[[ $(checkSum /tmp/nginxConf.zip $sha256sum_nginxConf) = "false" ]] && echo -e "${RED}Download Failed${cRES}" && exit
-[[ $(checkSum /tmp/nginxConf.zip $sha256sum_nginxConf) = "true" ]] && mv -f /tmp/nginxConf.zip /opt/de_GWD/.repo/nginxConf.zip
-fi
+local asset destination digest source
+for asset in "nginx_$architecture" nginxConf.zip; do
+    destination=/opt/de_GWD/.repo/nginxConf.zip
+    [[ $asset == nginxConf.zip ]] || destination=/usr/sbin/nginx
+    source="./resource/nginx/$asset"
+    if [[ -f $source ]]; then
+        digest=$(tr -d '\r\n' <"$source.sha256sum") || return 1
+        [[ $digest =~ ^[[:xdigit:]]{64}$ && $(checkSum "$source" "$digest") == true ]] || return 1
+        cp -f "$source" "$destination" || return 1
+    else
+        digest=$(curl -fsSL "https://raw.githubusercontent.com/kos991/c1/$branch/resource/nginx/$asset.sha256sum") || return 1
+        [[ $digest =~ ^[[:xdigit:]]{64}$ ]] || return 1
+        if [[ $(checkSum "$destination" "$digest") != true ]]; then
+            curl -fsSL -o "/opt/de_GWD/.repo/$asset.download" "https://raw.githubusercontent.com/kos991/c1/$branch/resource/nginx/$asset" || return 1
+            [[ $(checkSum "/opt/de_GWD/.repo/$asset.download" "$digest") == true ]] || return 1
+            mv -f "/opt/de_GWD/.repo/$asset.download" "$destination" || return 1
+        fi
+    fi
+done
+chmod 0755 /usr/sbin/nginx || return 1
 
 if [[ $(ttyd -v 2>&1 | grep -o '[0-9]\.[0-9]\.[0-9]') != $TTYD_Ver ]]; then
 wget --show-progress -cqO /tmp/ttyd https://github.com/tsl0922/ttyd/releases/download/$TTYD_Ver/ttyd.$(uname -m)
@@ -301,20 +268,33 @@ wget --show-progress -cqO /tmp/ttyd https://github.com/tsl0922/ttyd/releases/dow
 [[ $(du -sk /tmp/ttyd 2>/dev/null | awk '{print$1}') -gt 1000 ]] && mv -f /tmp/ttyd /usr/bin/ttyd && chmod +x /usr/bin/ttyd && TTYD_UPDATE="true"
 fi
 
-if [[ $(checkSum /opt/de_GWD/.repo/client.zip $sha256sum_client) = "false" ]]; then
-rm -rf /tmp/client.zip
-wget --show-progress -cqO /tmp/client.zip https://raw.githubusercontent.com/kos991/c1/$branch/resource/client/Archive.zip
-[[ $(checkSum /tmp/client.zip $sha256sum_client) = "false" ]] && echo -e "${WHITE}Client Zip${RED} Download Failed${cRES}" && exit
-[[ $(checkSum /tmp/client.zip $sha256sum_client) = "true" ]] && mv -f /tmp/client.zip /opt/de_GWD/.repo/client.zip
+if [[ -f ./resource/client/Archive.zip ]]; then
+    sha256sum_client=$(<./resource/client/Archive.zip.sha256sum)
+    [[ $sha256sum_client =~ ^[[:xdigit:]]{64}$ ]] && [[ $(checkSum ./resource/client/Archive.zip "$sha256sum_client") == true ]] || { echo 'Local client archive checksum failed' >&2; return 1; }
+    cp -f ./resource/client/Archive.zip /opt/de_GWD/.repo/client.zip || return 1
+else
+    sha256sum_client=$(curl -fsSLo- "https://raw.githubusercontent.com/kos991/c1/$branch/resource/client/Archive.zip.sha256sum") || return 1
+    [[ $sha256sum_client =~ ^[[:xdigit:]]{64}$ ]] || { echo 'Remote client checksum invalid' >&2; return 1; }
+    if [[ $(checkSum /opt/de_GWD/.repo/client.zip "$sha256sum_client") == false ]]; then
+        wget --show-progress -cqO /tmp/client.zip "https://raw.githubusercontent.com/kos991/c1/$branch/resource/client/Archive.zip" || return 1
+        [[ $(checkSum /tmp/client.zip "$sha256sum_client") == true ]] || { echo 'Client archive checksum failed' >&2; return 1; }
+        mv -f /tmp/client.zip /opt/de_GWD/.repo/client.zip || return 1
+    fi
 fi
+unzip -tq /opt/de_GWD/.repo/client.zip >/dev/null || return 1
+for required in ui-script/ui-admin ui-script/ui-dns-lib ui-web/terminal-auth.php ui-web/act/helpers.php; do
+    unzip -Z1 /opt/de_GWD/.repo/client.zip | grep -Fxq "$required" || { echo "Outdated client archive: missing $required" >&2; return 1; }
+done
+for retired in ui-web/app.php ui-web/ddns.php ui-web/act/onWG.php ui-web/act/installFileRun.php ui-script/ui-WGon ui-script/ui-ddnsCFon ui-script/ui-installFileRun; do
+    if unzip -Z1 /opt/de_GWD/.repo/client.zip | grep -Fxq "$retired"; then
+        echo "Outdated client archive: $retired" >&2; return 1
+    fi
+done
 
-localVer=$(awk 'NR==1' /opt/de_GWD/.repo/version.php 2>/dev/null)
-remoteVer=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/main/version.php | head -n 1)
-
-if [[ $localVer != $remoteVer ]] || [[ ! -f '/opt/de_GWD/.repo/version.php' ]]; then
-rm -rf /opt/de_GWD/.repo/version.php
-wget --show-progress -cqO /opt/de_GWD/.repo/version.php https://raw.githubusercontent.com/kos991/c1/main/version.php
-[[ $? -ne 0 ]] && echo -e "${WHITE}Version file${RED} Download Failed${cRES}" && exit
+if [[ -f ./version.php ]]; then
+    cp -f ./version.php /opt/de_GWD/.repo/version.php || return 1
+else
+    curl -fsSL -o /opt/de_GWD/.repo/version.php "https://raw.githubusercontent.com/kos991/c1/$branch/version.php" || return 1
 fi
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Repo Download${cRES}"
@@ -326,7 +306,6 @@ cleanDep(){
 echo -e "${WHITE}[...]\c" && echo -e "\t${WHITE}Clean-up${cRES}\r\c"
 service cron stop
 
-sed -i "/nfsvers/d" /etc/fstab >/dev/null 2>&1
 sed -i '/quic/d' /etc/nginx/conf.d/*.conf >/dev/null 2>&1
 
 [[ $(jq '.v2nodeDIV.nodeSM' /opt/de_GWD/0conf) = "[]" ]] && jq '.v2nodeDIV.nodeSM={}' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
@@ -367,7 +346,6 @@ jq 'del(.dns.regexRule)' |\
 jq 'del(.dns.adWlistURL)' |\
 jq 'del(.dns.adBlistURL)' | sponge /opt/de_GWD/0conf
 
-[[ -d "/opt/bitwardenrs" ]] && mv -f /opt/bitwardenrs /opt/bitwarden
 
 if [[ -f "/etc/systemd/system/doh-client.service" ]] || [[ -f "/lib/systemd/system/doh-client.service" ]]; then
     systemctl disable --now doh-client >/dev/null 2>&1
@@ -397,12 +375,10 @@ if [[ -f "/etc/systemd/system/iptables-proxy.service" ]] || [[ -f "/lib/systemd/
     rm -rf /opt/de_GWD/iptables-proxy-up
 fi
 
-if [[ -f "/etc/systemd/system/pihole-FTL.service" ]] || [[ -f "/lib/systemd/system/pihole-FTL.service" ]]; then
-    systemctl disable pihole-FTL >/dev/null 2>&1
-    systemctl stop pihole-FTL >/dev/null 2>&1
-    rm -rf /etc/systemd/system/pihole-FTL.service >/dev/null 2>&1
-    rm -rf /lib/systemd/system/pihole-FTL.service >/dev/null 2>&1
-    rm -rf /etc/.pihole /etc/pihole /opt/pihole /usr/bin/pihole-FTL /usr/local/bin/pihole /var/www/html/pihole /var/www/html/admin /var/log/pihole* /etc/dnsmasq.d/*
+if [[ -f /etc/systemd/system/pihole-FTL.service ]] && grep -Fq '/usr/bin/pihole-FTL' /etc/systemd/system/pihole-FTL.service; then
+    systemctl disable --now pihole-FTL >/dev/null 2>&1
+    rm -f /etc/systemd/system/pihole-FTL.service
+    systemctl daemon-reload >/dev/null
 fi
 
 if [[ -d "/opt/de_GWD/xDNSc" ]]; then
@@ -425,12 +401,6 @@ if [[ -d "/opt/de_GWD/xDNSs" ]]; then
     jq 'del(.FORWARD.xDNSs)' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
 fi
 
-if [[ `dpkg -l | grep php | grep fpm | awk '{print $2}'` = "php7.3-fpm" ]] || [[ `dpkg -l | grep php | grep fpm | awk '{print $2}'` = "php8.0-fpm" ]]; then
-    rm -rf /etc/php/7.3/
-    apt remove --purge '^php7.3.*'
-    rm -rf /etc/php/8.0/
-    apt remove --purge '^php8.0.*'
-fi
 
 [[ -f "/etc/nginx/off" ]] && rm -rf /etc/nginx/off
 rm -rf /etc/dnsmasq.d/89-bogus-domains.china.conf
@@ -445,7 +415,6 @@ rm -rf /opt/de_GWD/v2dns
 [[ -n $(dpkg -l | awk '{print$2}' | grep '^lighttpd$') ]] && apt remove --purge lighttpd
 [[ -n $(dpkg -l | awk '{print$2}' | grep '^lighttpd-mod-deflate$') ]] && apt remove --purge lighttpd-mod-deflate
 
-rm -rf /etc/pihole/migration_backup
 rm -rf /etc/dnsmasq.d/89-bogus-nxdomain.china.conf
 rm -rf /etc/apt/sources.list.d/unstable.list
 rm -rf /etc/apt/preferences.d/limit-unstable
@@ -744,10 +713,6 @@ DefaultLimitNPROC=1000000
 EOF
 systemctl daemon-reload
 
-rm -f /var/cache/apt/archives/lock
-rm -f /var/lib/apt/lists/lock
-rm -f /var/lib/dpkg/lock
-rm -f /var/lib/dpkg/lock-frontend
 dpkg --configure -a
 
 pkgDEP1
@@ -1273,10 +1238,8 @@ if [[ -z $doh1Port ]]; then
 else
     doh1Str="$doh1IP:$doh1Port/$doh1Path"
 fi
+printf 'server-https https://%s -host-name %s -http-host %s -tls-host-verify %s -group DNS_global -exclude-default-group\n' "$doh1Str" "$doh1Domain" "$doh1Domain" "$doh1Domain" >>/opt/de_GWD/smartdns/smartdns.conf
 
-cat << EOF >>/opt/de_GWD/smartdns/smartdns.conf
-server-https https://$doh1Str -host-name $doh1Domain -no-check-certificate -group DNS_global
-EOF
 fi
 
 echo -e "${WHITE}Domain: ${YELLOW}$doh1Domain\c" && echo -e "\t${WHITE}IP: ${YELLOW}$doh1IP${cRES}"
@@ -1298,10 +1261,8 @@ if [[ -z $doh2Port ]]; then
 else
     doh2Str="$doh2IP:$doh2Port/$doh2Path"
 fi
+printf 'server-https https://%s -host-name %s -http-host %s -tls-host-verify %s -group DNS_global -exclude-default-group\n' "$doh2Str" "$doh2Domain" "$doh2Domain" "$doh2Domain" >>/opt/de_GWD/smartdns/smartdns.conf
 
-cat << EOF >>/opt/de_GWD/smartdns/smartdns.conf
-server-https https://$doh2Str -host-name $doh2Domain -no-check-certificate -group DNS_global
-EOF
 fi
 
 systemctl restart smartdns
@@ -1331,6 +1292,7 @@ cat << EOF >/opt/de_GWD/coredns/corefile
 .:5333 {
 bind 127.0.0.1
 grpc . $DoGcIP:$DoGcPort {
+  tls
   tls_servername $DoGcDomain
 }
 template ANY AAAA {
@@ -1353,7 +1315,7 @@ echo -e "${WHITE}Domain: ${YELLOW}$domain\c" && echo -e "\t${WHITE}IP: ${YELLOW}
 echo
 echo -e "${BLUE}################################################################# ${cRES}"
 echo
-[[ -z $domainIP ]] && echo -e "${WHITE}V2 node${RED} Failure to resolve${cRES}" && exit 
+[[ -n $domainIP ]] || { echo -e "${WHITE}V2 node${RED} Failure to resolve${cRES}" >&2; return 1; }
 }
 
 
@@ -1473,6 +1435,8 @@ fi
 
 jq --argjson OBdefault "$OBdefault" '.outbounds[0]=$OBdefault' /opt/de_GWD/vtrui/config.json | sponge /opt/de_GWD/vtrui/config.json
 
+chown root:www-data /opt/de_GWD/vtrui/config.json
+chmod 0640 /opt/de_GWD/vtrui/config.json
 rm -rf /lib/systemd/system/vtrui.service
 cat << EOF >/etc/systemd/system/vtrui.service
 [Unit]
@@ -1655,10 +1619,6 @@ table inet filter {
         chain INPUT {
                 type filter hook input priority 0; policy accept;
                 iifname lo accept
-                iifname "wg0" accept
-                iifname "docker0" accept
-                iifname "ifb4lo" accept
-                iifname "ifb4wg0" accept
                 ct state established,related accept
                 tcp flags != syn ct state new drop
                 tcp flags & (fin|syn) == (fin|syn) drop
@@ -1670,10 +1630,6 @@ table inet filter {
         }
         chain FORWARD {
                 type filter hook forward priority 0; policy accept;
-                # WireGuard traffic
-                iifname "ifb4wg0" accept
-                iifname "wg0" accept
-                oifname "wg0" accept
 
                 # Docker traffic
                 counter jump DOCKER-USER
@@ -1720,9 +1676,6 @@ table inet router {
         }
         chain POSTROUTING {
                 type nat hook postrouting priority srcnat; policy accept;
-                # Wireguard masquerade traffic
-                oifname $ethernetnum ip saddr 172.16.66.0/24 masquerade
-
                 # Docker
                 oifname != "docker0" ip saddr 172.17.0.0/16 counter masquerade
         }
@@ -1741,8 +1694,6 @@ table inet bypassflow {
 
     chain bypasschain {
         type filter hook forward priority -300; policy accept;
-        ip daddr 172.16.66.0/24 flow offload @Acceleration
-        ip saddr 172.16.66.0/24 flow offload @Acceleration
         ip daddr 172.17.00.0/16 flow offload @Acceleration
         ip saddr 172.17.00.0/16 flow offload @Acceleration
     }
@@ -1857,8 +1808,8 @@ RemainAfterExit=yes
 StandardInput=null
 ProtectSystem=full
 ProtectHome=true
-ExecStart=/bin/bash -c '/etc/rc_online.local' ; /bin/bash -c '/opt/de_GWD/nftables/flowtable_eth.sh' ; /usr/sbin/nft -f /opt/de_GWD/nftables/nftables ; $(which ip) route add local default dev lo scope host table 220 ; $(which ip) rule add fwmark 0x9 table 220 prio 100
-ExecStop=/usr/sbin/nft flush ruleset ; $(which ip) rule del table 220 ; $(which ip) route del local default dev lo table 220
+ExecStart=/bin/bash -c '/etc/rc_online.local; /opt/de_GWD/nftables/flowtable_eth.sh; /usr/sbin/nft -f /opt/de_GWD/nftables/nftables || exit 1; [ ! -f /opt/de_GWD/nftables/proxy.disabled ] || { /usr/sbin/nft flush chain ip de_GWD prerouting; /usr/sbin/nft flush chain ip de_GWD output; }; /usr/sbin/ip route replace local default dev lo scope host table 220; /usr/sbin/ip rule show | grep -q "fwmark 0x9 lookup 220" || /usr/sbin/ip rule add fwmark 0x9 table 220 prio 100'
+ExecStop=/bin/bash -c '/usr/sbin/nft delete table ip de_GWD; /usr/sbin/nft delete table inet filter; /usr/sbin/nft delete table inet router; /usr/sbin/nft delete table inet bypassflow; /usr/sbin/ip rule del fwmark 0x9 table 220 prio 100; /usr/sbin/ip route del local default dev lo table 220'
 
 [Install]
 WantedBy=sysinit.target
@@ -1891,16 +1842,10 @@ deb http://cloudfront.debian.net/debian bookworm-backports main contrib non-free
 EOF
 fi
 
-install -d -m 0755 /etc/apt/keyrings
-if ! curl -fsSLo /etc/apt/keyrings/deb.sury.org.gpg https://packages.sury.org/php/apt.gpg; then
-    echo -e "${WHITE}PHP apt key${RED} Download Failed${cRES}"
-    exit 1
-fi
-chmod 0644 /etc/apt/keyrings/deb.sury.org.gpg
-echo "deb [signed-by=/etc/apt/keyrings/deb.sury.org.gpg] https://packages.sury.org/php/ $(. /etc/os-release; printf '%s' "$VERSION_CODENAME") main" >/etc/apt/sources.list.d/php.list
+rm -f /etc/apt/sources.list.d/php.list /etc/apt/keyrings/deb.sury.org.gpg
 
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Debian ${GREEN}Updated${cRES}"
 }
@@ -1909,29 +1854,20 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Debian ${GREEN
 
 installDep(){
 echo -e "${WHITE}[...]\c" && echo -e "\t${WHITE}Dependencies${cRES}\r\c"
-sed -i "/www-data/d" /etc/sudoers
-sed -i "/Allow members of group sudo to execute any command/a\www-data ALL=(root)  NOPASSWD:ALL" /etc/sudoers
+sed -i '/^www-data ALL=(root).*NOPASSWD:ALL/d' /etc/sudoers
+printf 'www-data ALL=(root) NOPASSWD: /opt/de_GWD/ui-admin\n' >/etc/sudoers.d/de_GWD-ui-admin
+chmod 0440 /etc/sudoers.d/de_GWD-ui-admin
 
 pkgDEP1
 
-pkgDEP2
+pkgDEP2 || return 1
 
 DPKGclean=$(dpkg --list | grep "^rc" | cut -d " " -f 3)
 [[ -n $DPKGclean ]] && echo $DPKGclean | xargs sudo dpkg --purge
 
-rm -rf /var/log/journal/*
-systemctl restart systemd-journald >/dev/null 2>&1
 
-if [[ -d "/usr/local/ioncube" ]]; then
-echo "zend_extension = /usr/local/ioncube/ioncube_loader_lin_7.4.so" >/etc/php/7.4/mods-available/ioncube.ini
-ln -sf /etc/php/7.4/mods-available/ioncube.ini /etc/php/7.4/fpm/conf.d/00-ioncube.ini
-ln -sf /etc/php/7.4/mods-available/ioncube.ini /etc/php/7.4/cli/conf.d/00-ioncube.ini
-fi
-
-sed -i "/zend_extension/d" /etc/php/7.4/cli/php.ini
-sed -i "/zend_extension/d" /etc/php/7.4/fpm/php.ini
-sed -i "s/^opcache/;&/" /etc/php/7.4/cli/php.ini
-sed -i "s/^opcache/;&/" /etc/php/7.4/fpm/php.ini
+local phpVersion
+phpVersion=$(phpVersionForDebian) || return 1
 
 cat << EOF >/etc/php/00-init.ini
 expose_php              = Off
@@ -1953,9 +1889,6 @@ output_buffering        = Off
 output_handler          = ""
 zlib.output_compression = Off
 zlib.output_handler     = ""
-safe_mode               = Off
-register_globals        = Off
-magic_quotes_gpc        = Off
 date.timezone           = "Asia/Shanghai"
 
 file_uploads            = On
@@ -1963,7 +1896,6 @@ upload_tmp_dir          = "/tmp/"
 upload_max_filesize     = 20M
 post_max_size           = 20M
 
-engine                  = off
 enable_dl               = Off
 disable_functions       = ""
 disable_classes         = ""
@@ -1976,23 +1908,18 @@ session.cookie_lifetime  = 0
 session.cookie_httponly  = 1
 session.cookie_secure    = 1
 EOF
-ln -sf /etc/php/00-init.ini /etc/php/7.4/cli/conf.d/00-init.ini
-ln -sf /etc/php/00-init.ini /etc/php/7.4/fpm/conf.d/00-init.ini
+ln -sf /etc/php/00-init.ini "/etc/php/${phpVersion}/cli/conf.d/00-init.ini"
+ln -sf /etc/php/00-init.ini "/etc/php/${phpVersion}/fpm/conf.d/00-init.ini"
 
-rm -rf /etc/php/7.4/fpm/pool.d
-cat << EOF >/etc/php/7.4/fpm/php-fpm.conf
-[global]
-pid = /run/php/php7.4-fpm.pid
-error_log = /var/log/php.log
-
+cat << EOF >"/etc/php/${phpVersion}/fpm/pool.d/www.conf"
 [www]
+
 user = www-data
 group = www-data
 listen.owner = www-data
 listen.group = www-data
-listen.mode = 0666
-listen = /run/php/php7.4-fpm.sock
-listen.backlog = -1
+listen.mode = 0660
+listen = /run/php/php${phpVersion}-fpm.sock
 listen.allowed_clients = 127.0.0.1
 
 pm = dynamic
@@ -2011,7 +1938,7 @@ env[TEMP] = /tmp
 env[TMPDIR] = /tmp
 EOF
 
-cat << EOF >/etc/php/7.4/mods-available/opcache.ini
+cat << EOF >"/etc/php/${phpVersion}/mods-available/opcache.ini"
 ; configuration for php opcache module
 ; priority=10
 zend_extension=opcache.so
@@ -2028,30 +1955,13 @@ opcache.fast_shutdown=1
 opcache.save_comments=1
 EOF
 
-rm -rf /var/log/php.log
-rm -rf /run/php7.4-fpm.pid
-rm -rf /lib/systemd/system/php7.4-fpm.service
-cat << EOF >/etc/systemd/system/php7.4-fpm.service
-[Unit]
-Description=The PHP 7.4 FastCGI Process Manager
-After=network.target
-
-[Service]
-Type=simple
-PIDFile=/run/php7.4-fpm.pid
-ExecStartPre=/usr/bin/touch /var/log/php.log
-ExecStart=/usr/sbin/php-fpm7.4 --nodaemonize --fpm-config /etc/php/7.4/fpm/php-fpm.conf
-ExecReload=$(which kill) -USR2 \$MAINPID
-Restart=always
-RestartSec=2
-TimeoutStopSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload >/dev/null
-systemctl enable php7.4-fpm >/dev/null 2>&1
-systemctl restart php7.4-fpm
+systemctl disable --now php7.4-fpm >/dev/null 2>&1 || true
+if [[ -f /etc/systemd/system/php7.4-fpm.service ]]; then
+  rm -f /etc/systemd/system/php7.4-fpm.service
+  systemctl daemon-reload >/dev/null
+fi
+systemctl enable "php${phpVersion}-fpm" >/dev/null 2>&1
+systemctl restart "php${phpVersion}-fpm" || return 1
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Dependencies${cRES}"
 }
@@ -2206,6 +2116,21 @@ server {
   include /etc/nginx/conf.d/.ssl_certs;
 
 # SERVER_BASE_END
+location ^~ /restore/ { return 404; }
+
+location = /terminal-auth.php {
+  internal;
+  include fastcgi_params;
+  fastcgi_param SCRIPT_FILENAME /var/www/html/terminal-auth.php;
+  fastcgi_param HTTP_HOST \$http_host;
+  fastcgi_param HTTP_COOKIE \$http_cookie;
+  fastcgi_param HTTP_ORIGIN \$http_origin;
+  fastcgi_param HTTPS \$https;
+  fastcgi_pass unix:/run/php/php$(phpVersionForDebian)-fpm.sock;
+  fastcgi_cache off;
+  add_header Cache-Control "no-store" always;
+}
+
 
 # Pihole_START
 location /admin/ {
@@ -2239,21 +2164,36 @@ location ~ [^/]\.php(/|$) {
 
   include               fastcgi_params;
   fastcgi_param         SCRIPT_FILENAME   \$document_root\$fastcgi_script_name;
-  fastcgi_pass          unix:/run/php/php7.4-fpm.sock;
+  fastcgi_pass          unix:/run/php/php$(phpVersionForDebian)-fpm.sock;
   fastcgi_index         index.php;
 }
 # PHP_END
 
 # TTYD_START
 location ~ ^/ttyd(.*)$ {
-  proxy_pass                  http://127.0.0.1:3000/\$1;
-  proxy_http_version          1.1;
-  proxy_set_header            Host \$host;
-  proxy_set_header            Upgrade \$http_upgrade;
-  proxy_set_header            Connection "upgrade";
-  proxy_set_header            X-Forwarded-Proto \$scheme;
-  proxy_set_header            X-Forwarded-For \$proxy_add_x_forwarded_for;
-  proxy_read_timeout          1800s;
+  auth_request /terminal-auth.php;
+  proxy_pass http://127.0.0.1:3000/\$1;
+  proxy_http_version 1.1;
+  proxy_set_header Host \$http_host;
+  proxy_set_header Upgrade \$http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header X-Forwarded-Proto \$scheme;
+  proxy_read_timeout 1800s;
+  add_header X-Frame-Options DENY always;
+  add_header Content-Security-Policy "frame-ancestors 'none'" always;
+}
+
+location ~ ^/update-terminal(.*)$ {
+  auth_request /terminal-auth.php;
+  proxy_pass http://127.0.0.1:3001/\$1;
+  proxy_http_version 1.1;
+  proxy_set_header Host \$http_host;
+  proxy_set_header Upgrade \$http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_set_header X-Forwarded-Proto \$scheme;
+  proxy_read_timeout 1800s;
+  add_header X-Frame-Options DENY always;
+  add_header Content-Security-Policy "frame-ancestors 'none'" always;
 }
 # TTYD_END
 
@@ -2271,14 +2211,32 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Nginx${cRES}"
 
 
 
+migratePublicBackups(){
+local backup target
+for backup in /var/www/html/restore/{de_GWD_bak,Bitwarden_bak.zip,Jellyfin_bak.zip}; do
+  [[ -f "$backup" && ! -L "$backup" ]] || continue
+  target="/var/lib/de_GWD/restore/$(basename "$backup")"
+  if [[ -e "$target" ]]; then
+    target=$(mktemp "/var/lib/de_GWD/restore/legacy-$(basename "$backup").XXXXXX") || return 1
+  fi
+  mv -- "$backup" "$target" || return 1
+  chown root:www-data "$target" && chmod 0640 "$target" || return 1
+done
+}
+
 installWebUI(){
+install -d -o root -g www-data -m 0750 /var/lib/de_GWD/restore || return 1
+install -d -o root -g www-data -m 0770 /var/lib/de_GWD/uploads || return 1
+migratePublicBackups || return 1
 rm -rf /tmp/ui-script
 rm -rf /tmp/ui-web
-unzip /opt/de_GWD/.repo/client.zip -d /tmp >/dev/null 2>&1
+unzip -tq /opt/de_GWD/.repo/client.zip >/dev/null || return 1
+unzip /opt/de_GWD/.repo/client.zip -d /tmp >/dev/null 2>&1 || return 1
+[[ -f /tmp/ui-script/ui-admin && -f /tmp/ui-web/terminal-auth.php && ! -e /tmp/ui-web/app.php && ! -e /tmp/ui-web/ddns.php ]] || return 1
 
 rm -rf /opt/de_GWD/ui-*
 rm -rf /opt/de_GWD/ui_*
-rm -rf /var/www/html/*.php
+rm -f /var/www/html/*.php
 rm -rf /var/www/html/*.ico
 rm -rf /var/www/html/act
 rm -rf /var/www/html/vendor
@@ -2286,15 +2244,18 @@ rm -rf /var/www/html/css
 rm -rf /var/www/html/js
 
 mv -f /tmp/ui-script/* /opt/de_GWD >/dev/null
+find /opt/de_GWD -maxdepth 1 -type f \( -name 'ui-*' -o -name 'ui_*' \) -exec chown root:root {} + -exec chmod 0755 {} +
+for helper in ui-route-lib ui-route-config ui-node-lib ui-dns-lib; do
+  [[ ! -f /opt/de_GWD/$helper ]] || chmod 0644 "/opt/de_GWD/$helper"
+done
+chown root:root /opt/de_GWD
+chmod 0755 /opt/de_GWD
 mv -f /tmp/ui-web/* /var/www/html >/dev/null
+mkdir -p /var/www/html/act /var/www/html/vendor /var/www/html/css /var/www/html/js
+find /var/www/html -mindepth 1 -maxdepth 1 \( -name '*.php' -o -name '*.ico' -o -name act -o -name vendor -o -name css -o -name js \) -exec chown -R root:www-data {} + -exec chmod -R u=rwX,g=rX,o=rX {} +
+install -d -o root -g www-data -m 0750 /var/lib/de_GWD/restore
+install -d -o root -g www-data -m 0770 /var/lib/de_GWD/uploads
 
-mkdir -p /var/www/html/restore
-chown -R www-data:www-data /var/www/html
-chmod -R +x /var/www/html
-chmod +x /opt/de_GWD/*
-
-if [[ $TTYD_UPDATE = "true" ]]; then
-[[ -z $(echo $updatePort | grep '^[[:digit:]]*$') ]] && updatePort="3000"
 
 rm -rf /lib/systemd/system/updateGWD.service
 cat << EOF >/etc/systemd/system/updateGWD.service
@@ -2306,50 +2267,46 @@ After=network.target
 User=root
 Type=oneshot
 ExecStartPre=/usr/bin/chmod +x /opt/de_GWD/update
-ExecStart=/usr/bin/tmux new -ds 'updateGWD' /usr/bin/ttyd -p $updatePort -o /opt/de_GWD/update
+ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 3001 -W -o /opt/de_GWD/update
 KillMode=process
 
 [Install]
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload >/dev/null
-fi
 
 if [[ $(du -sk /var/www/html/spt 2>/dev/null | awk '{print$1}') -lt 102400 ]]; then
   dd if=/dev/zero of=/var/www/html/spt bs=1k count=100k status=progress
 fi
 
-cp -f /opt/de_GWD/.repo/version.php /var/www/html/act/version.php
+install -o root -g root -m 0644 /opt/de_GWD/.repo/version.php /var/lib/de_GWD/version.php
 }
 
 
 
 pullpihole(){
 echo -e "${WHITE}[...]\c" && echo -e "\t${WHITE}Install Pi-hole${cRES}\r\c"
-docker pull pihole/pihole:latest
+systemctl enable --now docker || return 1
+case $architecture in
+  amd64) piholeImage='pihole/pihole:2026.10.0@sha256:d8d848307ffe7f8c4b42be423b33295d6a45282215eb5a96fe25e05fa39b1abc' ;;
+  arm64) piholeImage='pihole/pihole:2026.10.0@sha256:949894415b77f97e5336becdd2052702b21044acf25560db5cc5c7e8117c2a6e' ;;
+  *) echo "Unsupported Pi-hole architecture: $architecture" >&2; return 1 ;;
+esac
+docker image inspect "$piholeImage" >/dev/null 2>&1 || docker pull "$piholeImage" || return 1
 }
 
 
 
 installPihole(){
-docker rm -f pihole >/dev/null 2>&1
-rm -rf "/etc/dnsmasq.d"
-mkdir -p "/etc/dnsmasq.d"
-
-if [[ -f "/opt/de_GWD/pihole/pihole.toml" ]]; then
-piholePW=$(python3 <<EOF
-import toml
-with open("/opt/de_GWD/pihole/pihole.toml", "r") as f:
- data = toml.load(f)
-
-print(f"{data['webserver']['api']['pwhash']}")
-EOF
-)
+local piholeUID piholeGID attempt
+docker rm -f pihole >/dev/null 2>&1 || true
+mkdir -p /etc/dnsmasq.d /opt/de_GWD/pihole
+if [[ -f /opt/de_GWD/pihole/pihole.toml ]]; then
+  piholePW=
 else
-piholePW='$BALLOON-SHA256$v=1$s=1024,t=32$LwoqshC8cGQ60io+j+h3yQ==$/zfv150BWOgSihODqM1TDSJYydjRp4lH2mf9AOB3oe0='
+  piholePW=$(openssl rand -hex 32) || return 1
+  piholePW_hash=$(echo "$piholePW" | php /opt/de_GWD/ui-password-hash) || return 1
 fi
-
-mkdir -p /opt/de_GWD/pihole
 docker run -d \
 --name=pihole \
 --cap-add NET_RAW \
@@ -2361,18 +2318,23 @@ docker run -d \
 -v /etc/localtime:/etc/localtime \
 -v /opt/de_GWD/pihole:/etc/pihole \
 -v /etc/dnsmasq.d:/etc/dnsmasq.d \
-pihole/pihole:latest
+"$piholeImage" || return 1
 
-python3 <<EOF
-import toml
-with open("/opt/de_GWD/pihole/pihole.toml", "r") as f:
- data = toml.load(f)
-
-data['webserver']['api']['pwhash'] = "$piholePW"
-
-with open("/opt/de_GWD/pihole/pihole.toml", "w") as f:
-    toml.dump(data, f)
-EOF
+for ((attempt=0; attempt<60; attempt++)); do
+  [[ -s /opt/de_GWD/pihole/pihole.toml ]] && break
+  sleep 1
+done
+[[ -s /opt/de_GWD/pihole/pihole.toml ]] || { echo 'Pi-hole configuration did not initialize' >&2; return 1; }
+piholeUID=$(docker exec pihole id -u pihole) || return 1
+piholeGID=$(docker exec pihole id -g pihole) || return 1
+chown "$piholeUID:$piholeGID" /opt/de_GWD/pihole
+chmod 0750 /opt/de_GWD/pihole
+if [[ -n $piholePW ]]; then
+  docker exec pihole pihole setpassword "$piholePW" || return 1
+  [[ -n $piholePW_hash ]] && jq --arg h "$piholePW_hash" '.address.PWD = $h' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
+fi
+chown "$piholeUID:$piholeGID" /opt/de_GWD/pihole/pihole.toml
+chmod 0640 /opt/de_GWD/pihole/pihole.toml
 }
 
 
@@ -2399,7 +2361,7 @@ data["dns"]["blocking"]["edns"] = "TEXT"
 data["dns"]["domainNeeded"] = True
 data["dns"]["rateLimit"]["count"] = 10000
 data["dns"]["replyWhenBusy"] = "ALLOW"
-data["webserver"]["port"] = "8053"
+data["webserver"]["port"] = "127.0.0.1:8053"
 data["resolver"]["resolveIPv6"] = False
 data["ntp"]["ipv4"]["active"] = False
 data["ntp"]["ipv6"]["active"] = False
@@ -2414,7 +2376,8 @@ with open("/opt/de_GWD/pihole/pihole.toml", "w") as f:
     toml.dump(data, f)
 EOF
 
-chmod -R 777 /opt/de_GWD/pihole
+chown "$piholeUID:$piholeGID" /opt/de_GWD/pihole/pihole.toml
+chmod 0640 /opt/de_GWD/pihole/pihole.toml
 
 cat << EOF >/etc/dnsmasq.d/00-extra.conf
 dns-forward-max=10000
@@ -2496,25 +2459,11 @@ systemctl restart vtrui
 
 /opt/de_GWD/ui_2h
 
-cat << "EOF" >/etc/rc_kernel.local
-#!/bin/bash
-PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-
-rm -f /var/cache/apt/archives/lock
-rm -f /var/lib/apt/lists/lock
-rm -f /var/lib/dpkg/lock
-rm -f /var/lib/dpkg/lock-frontend
-dpkg --configure -a
-
-dpkg --list | grep linux-image | awk '{print $2}' | grep -Fv $(uname -r) | while read line; do
-apt autoremove --purge  -y $line
-done
-
-dpkg --list | grep linux-headers | awk '{print $2}' | grep -Fv $(uname -r) | while read line; do
-apt autoremove --purge  -y $line
-done
-EOF
-chmod +x /etc/rc_kernel.local
+if [[ -f /etc/rc_kernel.local ]] && grep -Fq 'apt autoremove' /etc/rc_kernel.local; then
+  install -d -m 0700 /opt/de_GWD/kernel-backup || return 1
+  cp -p /etc/rc_kernel.local "/opt/de_GWD/kernel-backup/rc_kernel.local.$(date +%Y%m%d%H%M%S).$$" || return 1
+  rm -f /etc/rc_kernel.local || return 1
+fi
 
 
 crontab -l 2>/dev/null >/tmp/now.cron
@@ -2523,12 +2472,13 @@ sed -i '/\/opt\/de_GWD\/ui_4h/d' /tmp/now.cron
 sed -i '/\/opt\/de_GWD\/ui_2h/d' /tmp/now.cron
 sed -i '/\/opt\/de_GWD\/clearKernel/d' /tmp/now.cron
 sed -i '/\/etc\/rc_.*/d' /tmp/now.cron
+sed -i '/\/opt\/de_GWD\/ui-ddns/d' /tmp/now.cron
 cat << EOF >>/tmp/now.cron
 0 4 * * * /opt/de_GWD/ui_4am u
 0 */4 * * * /opt/de_GWD/ui_4h
 0 */2 * * * /opt/de_GWD/ui_2h
-@reboot sleep 15 && /etc/rc_kernel.local
 EOF
+[[ -x /etc/rc_kernel.local ]] && echo '@reboot sleep 15 && /etc/rc_kernel.local' >>/tmp/now.cron
 crontab /tmp/now.cron
 rm -rf /tmp/now.cron
 service cron restart
@@ -2578,7 +2528,7 @@ serverName=$(jq -r '.address.serverName' /opt/de_GWD/0conf 2>/dev/null | grep -v
 nginxSet
 systemctl force-reload nginx >/dev/null
 
-sed -i "/ExecStart=/c\ExecStart=/usr/bin/ttyd -p $updatePort -o /opt/de_GWD/update" /etc/systemd/system/updateGWD.service
+sed -i '/ExecStart=/c\ExecStart=/usr/bin/ttyd -i 127.0.0.1 -p 3001 -W -o /opt/de_GWD/update' /etc/systemd/system/updateGWD.service
 systemctl daemon-reload >/dev/null
 
 jq --arg updatePort $updatePort '.update.updatePort=$updatePort' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
@@ -2592,13 +2542,14 @@ changePWD(){
     echo -e "${GREEN}=========================== ${cRES}"
     echo -e "${GREEN} New Password${cRES}"
     echo -e "${GREEN}=========================== ${cRES}"
-    read newPW
+    read -r -s newPW
 
 docker exec pihole pihole setpassword "$newPW"
 
-piholePW=$(php -r "echo hash('sha256', hash('sha256', '$newPW'));")
+piholePW=$(echo "$newPW" | php /opt/de_GWD/ui-password-hash) || return 1
 jq --arg piholePW "$piholePW" '.address.PWD = $piholePW' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
-chmod 666 /opt/de_GWD/0conf
+chown root:www-data /opt/de_GWD/0conf
+chmod 0660 /opt/de_GWD/0conf
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Password ${GREEN}Changed${cRES}"
 }
@@ -2670,7 +2621,7 @@ EOF
 
 sed -i "s/ stretch / buster /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 fi
 
 if [[ $debianCodename != trixie ]]; then
@@ -2685,7 +2636,7 @@ sed -i "s/ buster / bookworm /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 sed -i "s/ bullseye / bookworm /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 fi
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 
 preInstall
 
@@ -2693,7 +2644,12 @@ preConf
 
 preDL
 
-installSmartDNS
+updateAPT || return 1
+installDep || return 1
+repoDL || return 1
+pullpihole || return 1
+
+installSmartDNS || return 1
 
 installXray
 
@@ -2720,29 +2676,21 @@ jq --arg uuid "$uuid" '.update.v2node.uuid=$uuid' |\
 jq --arg path "$path" '.update.v2node.path=$path' | sponge /opt/de_GWD/0conf
 [[ -n $DoG ]] && jq --arg DoG "$DoG" '.dns.DoG=$DoG' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
 [[ -n $doh1 ]] && jq --arg doh1 "$doh1" '.dns.doh+=[$doh1]' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
-chmod 666 /opt/de_GWD/0conf
+chown root:www-data /opt/de_GWD/0conf
+chmod 0660 /opt/de_GWD/0conf
 
 de_GWDconnect
 
-updateAPT
-
-apt --reinstall install ca-certificates
-
-installDep
-
-repoDL
 
 installNginx
 
 nginxSet
 
-installWebUI
+installWebUI || return 1
 
-pullpihole
+installPihole || return 1
 
-installPihole
-
-piholeSet
+piholeSet || return 1
 
 postInstall
 
@@ -2770,7 +2718,7 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}de_GWD ${GREEN
 
 
 updateGWD_Green(){
-repoDL
+repoDL || return 1
 
 installDep
 
@@ -2778,7 +2726,7 @@ installNginx
 
 nginxSet
 
-installWebUI
+installWebUI || return 1
 
 preInstall
 
@@ -2818,13 +2766,13 @@ updateAPT
 
 installDep
 
-repoDL
+repoDL || return 1
 
 installNginx
 
 nginxSet
 
-installWebUI
+installWebUI || return 1
 
 pullpihole
 
@@ -2879,12 +2827,14 @@ else
   echo -e "${WHITE} Nginx          \c" && echo -e "${WHITE}[ ${RED}✕ ${WHITE}]${cRES}"
 fi
 
-if [[ $(systemctl is-active 'php7.4-fpm') = "active" ]]; then
-  echo -e "${WHITE} php7.4-FPM     \c" && echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]${cRES}"
-elif [ ! -f "/etc/php/7.4/fpm/php-fpm.conf" ]; then
-  echo -e "${WHITE} php7.4-FPM     \c" && echo -e "${WHITE}[ ${YELLOW}! ${WHITE}]${cRES}"
+local phpVersion
+phpVersion=$(phpVersionForDebian) || return 1
+if [[ $(systemctl is-active "php${phpVersion}-fpm") = active ]]; then
+  echo -e "${WHITE} PHP ${phpVersion}-FPM   [ ${GREEN}✓ ${WHITE}]${cRES}"
+elif [[ ! -f /etc/php/${phpVersion}/fpm/pool.d/www.conf ]]; then
+  echo -e "${WHITE} PHP ${phpVersion}-FPM   [ ${YELLOW}! ${WHITE}]${cRES}"
 else
-  echo -e "${WHITE} php7.4-FPM     \c" && echo -e "${WHITE}[ ${RED}✕ ${WHITE}]${cRES}"
+  echo -e "${WHITE} PHP ${phpVersion}-FPM   [ ${RED}✕ ${WHITE}]${cRES}"
 fi
 
 if [[ -n $(crontab -l 2>&1 | grep "autoUpdate") ]] && [[ -f "/opt/de_GWD/autoUpdate" ]]; then

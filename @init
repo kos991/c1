@@ -323,7 +323,8 @@ deb http://cloudfront.debian.net/debian bookworm-backports main contrib non-free
 EOF
 fi
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt --purge autoremove -y && apt clean -y && apt autoclean -y
+# Keep installed fallback kernels; package removal requires an explicit administrator decision.
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 
 [[ -n $(dpkg -l | awk '{print$2}' | grep '^haveged$') ]] && apt remove --purge haveged
 [[ -n $(dpkg -l | awk '{print$2}' | grep '^os-prober$') ]] && apt remove --purge os-prober
@@ -524,13 +525,15 @@ EOF
 systemctl daemon-reload >/dev/null
 /etc/rc_online.local
 
-crontab -l 2>/dev/null >/tmp/now.cron
-sed -i '/\/etc\/rc_online.local/d' /tmp/now.cron
-cat << EOF >>/tmp/now.cron
-EOF
-crontab /tmp/now.cron
-rm -rf /tmp/now.cron
+# Use a private file: a predictable /tmp path can be pre-created as a symlink.
+cronTemporary=$(mktemp) || exit 1
+if crontab -l >"$cronTemporary" 2>/dev/null; then
+    if ! sed -i '/\/etc\/rc_online.local/d' "$cronTemporary" || ! crontab "$cronTemporary"; then
+        rm -f -- "$cronTemporary"
+        exit 1
+    fi
+fi
+rm -f -- "$cronTemporary"
 
-date -s "$(wget -qSO- --max-redirect=0 aliyun.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z" | grep -v ' 08:00:00 '
-[[ $? -ne "0" ]] && date -s "$(wget -qSO- --max-redirect=0 baidu.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
+# Chrony manages system time; unauthenticated HTTP headers must not override it.
 hwclock -w

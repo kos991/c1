@@ -14,8 +14,8 @@
 * `client`、`server` 和 `@init` 保留 Debian 13 当前的 APT 软件源，包括 DEB822 `.sources` 文件，不再将其改写为 bookworm；安装前应确保系统源已经正确指向 trixie。
 * DNS 工具使用 `bind9-dnsutils`，显式安装自动更新所需的 `cron`，补齐预编译 Nginx 的 Brotli、crypt 和 arm64 profiler 运行库。
 * amd64 Nginx 依赖 `libmimalloc.so.2`。安装器从 Debian 官方下载 `libmimalloc2.0_2.0.9+ds-2_amd64.deb` 并校验固定 SHA-256，不添加 bookworm 软件源；不能用 `libmimalloc3` 或将 `.so.3` 链接为 `.so.2` 替代。该兼容库随 Debian 12 包维护，后续更换 Nginx 构建时应同步更新此依赖。
-* Web 界面继续使用 Sury 提供的 trixie PHP 7.4 包；PHP 7.4 上游已停止维护，本次适配未迁移 PHP 大版本。PHP 源使用独立 keyring 和 `signed-by`，不再调用 `apt-key`；Docker 公钥转为二进制 keyring 后使用。
-* 通过 `/etc/sysctl.d/99-de-gwd.conf` 指向现有 `/etc/sysctl.conf`，使 Debian 13 的 systemd-sysctl 在启动时读取网关参数，并保持 WireGuard 和内核脚本对同一配置的修改生效。
+* 客户端管理界面改用 Debian 13 的 PHP 8.4、Debian 12 的 PHP 8.2，安装器按系统版本选择 PHP CLI/FPM 与 Nginx FastCGI socket；不再将 Sury PHP 7.4 作为当前运行基线。迁移时须核对发行版实际包版本、扩展和 Web 页面行为。
+* 通过 `/etc/sysctl.d/99-de-gwd.conf` 指向现有 `/etc/sysctl.conf`，使 Debian 13 的 systemd-sysctl 在启动时读取网关参数。客户端 WireGuard 管理模块已移除，不能把该 sysctl 链接解释为对客户端 WireGuard 功能的支持。
 * 安装入口使用 LF 换行，并通过 `.gitattributes` 固定 Shell 脚本换行格式，避免 Windows 检出后的 CRLF 导致 Linux Bash 语法错误。
 
 使用此修改版时，将本地 `client`（客户端另带对应架构的 `de_GWD_amd64.zip` 或 `de_GWD_arm64.zip`）或 `server` 上传到 Debian 13，在所在目录以 root 执行：
@@ -26,33 +26,31 @@ bash ./client
 bash ./server
 ```
 
-此修复版发布于 `kos991/c1`，在线安装、资源下载、Web 更新、自动更新和内核安装入口均指向该仓库的 `main` 分支。原项目为 `jacyl4/de_GWD`，保留原作者署名与许可证；已有上游安装需先手动执行本仓库脚本以切换更新来源。
+仓库位于 `kos991/c1`；本地脚本、资源和更新入口应先核对来源、所选分支及摘要，再作为部署输入。原项目为 `jacyl4/de_GWD`，保留原作者署名与许可证；已有上游安装需手动执行本仓库脚本以切换更新来源。**本轮改动尚未发布并通过整机验收**，下文历史记录不等于当前候选版本或新版管理面的验证结果。
 
-验证范围：已执行 Debian 12/13 软件源处理场景、兼容库下载及摘要校验，并核对 Debian/Sury/Docker 的 trixie amd64、arm64 包索引。在 Debian 13.7 amd64、Linux 6.12 测试机上完成以下验证：
+### 当前功能边界与升级保护
 
-* 客户端、服务端、初始化和内核安装入口通过 Linux Bash 语法检查；客户端与服务端依赖集合通过 APT 模拟安装。
-* 复现预编译 Nginx 缺少 `libmimalloc.so.2`，执行安装器中的兼容库函数后 Nginx 1.29.0 正常运行。
-* 使用项目的 Nginx 基础配置、PHP-FPM pool 和 PHP ini 设置，在回环地址完成 Nginx → PHP 7.4.33 请求，SQLite、XML、Intl 验证通过；Web 压缩包中的 PHP 文件通过语法检查。
-* PHP-FPM 和 Docker systemd 服务正常启动；Docker 29.9.2 成功拉取并运行 `hello-world` 容器。
-* 使用有效测试节点与网段输入，在独立网络命名空间中实际加载项目 nftables、TPROXY、flowtable 和策略路由；在隔离挂载/网络命名空间中验证 `systemd-sysctl` 通过配置软链接加载 IPv4 转发参数。
-* 压缩包内 Xray、mosdns、SmartDNS、CoreDNS 和 yq 均成功执行版本命令。
+客户端继续保留 Pi-hole/Docker DNS 链、Xray/nftables、节点和 FWD/Rproxy 转发、证书、系统备份/还原及更新管理；服务端继续保留 WARP (`wgcf`)、HAProxy 转发、DoH、Nginx/证书与 Xray。客户端已经移除完整的 DDNS、WireGuard 和应用管理模块：不再提供 Cloudflare/3322 DDNS、`wg0`/客户端配置/二维码，以及 FileRun、MariaDB、Jellyfin、Vaultwarden、NFS 的安装、备份/还原和状态入口。**切除管理入口不自动停用或卸载既有应用与 WireGuard 服务，也不自动删除其数据、密钥、站点或许可证资料**；升级前应自行备份，并确认现有服务与 PHP 8.4/8.2 的兼容性。Docker 仍是 Pi-hole 基础依赖，证书的 Cloudflare DNS-01 流程不属于已移除的 DDNS 功能。
 
-尚未验证：arm64 实机运行、完整交互安装、真实上游节点转发、域名证书签发、Web 管理操作及整机重启后的网关连通性。上述组件测试不等于完整部署验收；安装脚本会修改网络、DNS、防火墙和系统参数。
+升级时会删除旧页面、`act` 接口和 `ui-*` 脚本，并清除 `ui-ddns*` 定时任务；旧的公开备份 `/var/www/html/restore/*` 迁入私有目录 `/var/lib/de_GWD/restore`（`root:www-data 0640`）。
 
-### PHP 安全修复：CVE-2026-109618 / CVE-2026-109619
+网页更新和自动更新只执行 root 所有的 `/etc/de_GWD/update-source.json` 中固定的 HTTPS 地址和 SHA-256。**该文件不会自动生成**，未配置时网页更新和自动更新会直接报错退出。可以在命令行运行 `client` 更新，或以 root 写入 `{"url":"https://...","sha256":"..."}` 并设置 `root:root 0644`。
 
-这两项 PHP 核心漏洞需要包含修复补丁的运行时；关闭错误显示、限制上传或缩短 worker 生命周期不能替代补丁。上游公告：
+完整的组件旧基线、未发布候选和来源见 [COMPONENT-BASELINE.md](COMPONENT-BASELINE.md)；双端 DNS、代理、管理、更新与内核链路见 [RUNTIME-FLOWS.md](RUNTIME-FLOWS.md)。候选版本及镜像 digest 仍需在对应架构、Debian 发行版上核对上游公告、构建产物和实际运行结果，不应称为已修复漏洞或已通过生产验证。
 
-* CVE-2026-109618：https://github.com/php/php-src/security/advisories/GHSA-w8hw-w9fx-j79w
-* CVE-2026-109619：https://github.com/php/php-src/security/advisories/GHSA-6wmf-4rv5-p3rp
+### 验证状态
 
-本项目保留 Sury PHP 7.4 以兼容现有应用。Sury 的 Debian changelog 在 `1:7.4.33-31` 中明确记录从 PHP 8.2.35 回补两个 CVE；`php -v` 仍显示 `7.4.33`，必须以完整发行包版本及发行商补丁记录判断。此版本下限针对 Sury 包，不表示所有自行编译的 PHP 7.4.33 都已修复。
+**本轮已执行（2026-10-25，Debian 13.7 amd64）**：客户端、服务端、初始化和所有 UI helper 通过 Shell/Python 语法检查；Web PHP 同时在 PHP 7.4 和 8.4.27 下通过语法检查。DoH 地址解析（含非法主机、端口、路径拒绝）、Pi-hole 上游写入和自动更新调用在 trixie 容器中实测通过。新版 `resource/client/Archive.zip` 完整性与摘要通过检查；隔离容器执行 `installWebUI`，确认旧 DDNS/WireGuard/应用页面和脚本删除、已有应用数据保留、旧备份迁至私有目录。独立 PHP 8.4 测试站点中，浏览器确认登录后菜单只剩概览、中转、节点管理、更新和 Pi-hole，已删除的 `act` 接口返回 404，未携带 CSRF token 的 POST 返回 403；旧 `app.php` 和 `ddns.php` 不在发布包内，但 PHP 内置服务器会把不存在的页面请求回退到首页（已部署 Nginx 的返回码尚未验收）。这些测试没有启动完整网关或真实 PHP-FPM。
 
-`client` 的 `installSecurePHP` 在依赖安装路径中检查 PHP common、CLI、FPM、CGI、核心扩展及已安装的同源 PHP 包，要求至少为 `1:7.4.33-31`。缺失或过旧时执行 APT 更新和安装，完成后再次检查版本；升级失败或仍低于下限时停止流程，验证通过后重启 FPM，替换旧 worker。PECL 扩展版本独立，不套用 PHP 核心包版本下限。
+**指定测试机整机验收（2026-10-25，Debian 13 amd64）**：在完成隔离检查后，经授权在 `192.168.0.111` 执行真实客户端安装。使用本地资源和现有可用 VMess WS/TLS 节点；PHP 8.4.27、Nginx、Pi-hole Docker、SmartDNS、mosdns、Xray、nftables 和 SSH 正常运行。浏览器通过实际 Nginx/PHP-FPM 登录，概览、节点、中转、更新页返回 200，旧 `app.php`、`ddns.php`、专属接口返回 404；缺少 CSRF token 返回 403，配置备份请求成功。国内/国外 DNS 查询及透明代理 HTTPS 请求通过；重建 DNS 配置并重启 nftables、相关服务后再次通过。25 项 POSIX 回归测试通过。原 `honk-core` 已停止并禁用自启动，原配置保留；定时网络回滚已取消，恢复备份保留在测试机 root 私有目录。
 
-2026-10-24 实机核实：测试机已经安装 Sury `1:7.4.33-31+0~20261021.121+debian13~1.gbpe9c428`，其 `/usr/share/doc/php7.4-common/changelog.Debian.gz` 包含两个 CVE 的回补记录。本次执行安全检查并重启 FPM，确认运行中的可执行文件与已修补的安装包一致，包完整性检查和真实 FastCGI 请求通过。未执行攻击性漏洞利用测试，也未据此作入侵排查结论。
+实测修复：首次安装补齐 DoH 上游配置；依赖、资源和固定镜像准备移到透明代理接管之前；Nginx 本地资源校验兼容 CRLF 并恢复 `libmimalloc.so.2` 依赖；Docker 公钥下载失败不再截断已有 keyring；不可变镜像可从本地缓存使用；空 nftables 集合不再输出非法 `elements = { }`，节点集合持久化改为冷启动可加载的声明，nft 加载失败向 systemd 返回错误。资源压缩包与摘要同步更新。
 
-回归验证：在 Debian 执行 `python3 -m unittest discover -s tests -v`。五个场景覆盖旧包升级、缺失 FPM 安装、已修复版本、APT 成功但候选版本仍旧及 APT 失败；已在测试机通过。
+测速接口修复：节点 TCP、DoH 1/2、DoG 延迟与节点下载测速接口补齐 `auth.php` 初始化，修复调用未定义公共函数导致 HTTP 500、页面延迟留空的问题。目标机浏览器实际点击 `Ping (TCP)` 后节点及两个 DoH 延迟均显示数字；五个接口的未登录请求返回 401，缺少 CSRF token 返回 403，非法节点索引返回 400。这里显示的是 TCP 建连耗时，不代表完整 DoH 查询耗时。
+
+**仍未验证**：整机重启、Debian 12 和 arm64 实机安装/升级、完整 LAN 客户端 UDP/透明代理、全部转发与反向代理操作、DoG、服务端完整安装、证书签发/续期、WARP。安装过程中实际升级了系统软件包及 Debian 回退内核，未重启当前 XanMod 内核；配置回滚不是系统软件包版本回滚。管理页使用安装器生成的自签名证书，浏览器需明确接受该测试证书。
+
+**历史记录（2026-10-24，不适用于当前候选）**：此前 Debian 13.7 amd64 / Linux 6.12 环境中曾检查 APT 源处理、Nginx `libmimalloc.so.2` 兼容、旧 PHP 7.4 FastCGI/SQLite/XML/Intl、Docker `hello-world`、隔离网络的 nftables/TPROXY/策略路由和旧 ZIP 内二进制版本。旧 Sury PHP 7.4 的包版本/安全回补检查仅涉及旧部署，不能证明当前 Debian PHP 8.4/8.2 已修复特定漏洞；旧 PHP 7.4 的测试和安装函数已不作为当前安装方案。任何漏洞状态均以对应发行版/上游公告及实际安装包为准，不使用历史测试代替本轮验证。
 
 ### Nginx 证书和 APT 提示修复
 
@@ -60,7 +58,7 @@ bash ./server
 
 Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字段，已有第三方源保持不变，并使用 `.c1-before-signed-by.save` 备份源文件。该修复消除 APT 的 `Missing Signed-By` 提示，不改变镜像、套件或组件。
 
-2026-10-24 实机修复：`vm.jinfei.org` 的失败原因是 UFW 只放行 SSH 22，公网无法访问 HTTP-01；已放行 80/tcp、443/tcp、443/udp，签发并安装 Let's Encrypt 证书，外部 TLS 1.3 和 HTTPS 200 验证通过。
+历史实机记录（2026-10-24）：`vm.jinfei.org` 当时因 UFW 仅放行 SSH 22 而无法公网访问 HTTP-01，放行 80/tcp、443/tcp、443/udp 后签发 Let's Encrypt 证书并验证外部 TLS 1.3/HTTPS 200。此记录不证明本轮候选 Nginx、PHP 或证书更新流程已通过测试。
 
 ### XanMod 内核安装入口
 
@@ -68,18 +66,22 @@ Debian 13 的官方源会自动补上 Debian archive keyring 的 `Signed-By` 字
 
 安全行为：安装前检查系统、虚拟化、Secure Boot、DKMS、磁盘空间和可用 Debian 回退内核；不自动重启、不自动删除旧内核、不运行 `apt autoremove`。旧版 `rc_kernel.local` 自动备份到 `/opt/de_GWD/kernel-backup` 后停用，避免启动后删除当前或回退内核。安装、恢复和卸载均需显式输入 `YES`；卸载 XanMod 前必须先运行 Debian 内核。
 
-入口支持：`bash resource/kernel/installkernel --check` 只读预检，`--status` 查看状态，`--install` 安装/更新，`--restore` 准备 Debian 回退内核，`--remove` 在已启动 Debian 内核后卸载 XanMod；无参数进入菜单。当前 Debian 13 amd64 测试机已通过 `--help`、`--status`、`--check` 和 Bash 语法检查，未执行安装或重启。
+历史记录（2026-10-24）：此前 Debian 13 amd64 测试机通过 `--help`、`--status`、`--check` 和 Bash 语法检查，未执行内核安装或重启；本轮内核路径仍待验收。
 
-### C1 独立版本与 Xray 双端更新（v2.0.0+C1）
+### C1 独立版本与 Xray 双端更新（v2.0.0）
 
-修改版从本次起使用独立版本 **`v2.0.0+C1`**，替代此前的 `v1.26.6.4` 标识；原版 `jacyl4/de_GWD` 的版本线保持独立。后续修复递增为 `v2.0.1+C1`，功能更新为 `v2.1.0+C1`，不兼容更新递增主版本。`+C1` 标识本仓库修改版，同时兼容现有面板的版本分隔和自动更新排序。此变更只调整项目版本标识，Xray 仍为 `26.10.21`。
+修改版使用独立版本 **`v2.0.0`**，项目名称保留 C1，版本号不带 `+C1` 后缀，与原版 `jacyl4/de_GWD` 的版本线独立。采用 `v主版本.功能小版本.BUG修复版本`：功能小版本和修复版本均从 0 开始；功能更新依次为 `v2.1.0`、`v2.2.0`，修 BUG 则递增最后一位，例如 `v2.0.1`、`v2.0.2` 或 `v2.1.1`。发布新的功能小版本时，修复位归零；不兼容更新递增主版本并将后两位归零。本次仅统一命名，Xray 仍为 `26.10.21`。
+
+版本分类：Nginx、PHP、Xray、DNS 等组件的版本升级或组件安全更新，归入小版本更新，递增中间位并将末位归零（如 `v2.0.0 → v2.1.0`）；新增功能同样递增中间位。仅修复项目自身 BUG、未升级组件的改动递增末位（如 `v2.1.0 → v2.1.1`）。同次发布包含组件更新和 BUG 修复时，按小版本发布，不逐个组件累计版本号。
+
+客户端与服务端安装器均以同一份 `version.php` 的首行作为本地版本；手动上传本地安装资源时，须将该文件与 `client` / `server` 一起上传。远端 `kos991/c1/main` 当前仍使用历史标识 `v2.0.0+C1`；面板将其归一化显示为 `v2.0.0 旧版发布`，与本机的 `v2.0.0 本机` 使用同一版本号，同时不会误报有新版或冒充当前本地改动已发布。双端自动更新比较时剥离历史 `+C1` 后缀，仅远端语义版本真正更高才触发；仓库发布新版 `version.php` 后，远端显示会同步成无后缀版本。
 
 
-服务端与客户端共用的 `de_GWD_amd64.zip`、`de_GWD_arm64.zip` 已将 Xray 更新到官方 [v26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21)（安全更新，当前 Latest）。官方发布包 SHA-256 校验通过，两个项目压缩包的校验和同步更新，其他组件保持原样。
+历史版本记录（2026-10-24）：双端 `de_GWD_amd64.zip`、`de_GWD_arm64.zip` 曾包含官方 [Xray v26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21)，当时校验过发布包 SHA-256；该记录不代表本轮所有候选组件已更新、已发布，或 `26.10.21` 仍为上游 Latest。以当前 ZIP 哈希、部署主机 `/opt/de_GWD/vtrui/vtrui version` 和 [COMPONENT-BASELINE.md](COMPONENT-BASELINE.md) 为准。
 
-已有安装分别运行最新版 `server` 或 `client`，选择 `0. Update de_GWD`；新安装直接使用新版压缩包。客户端离线安装需同时替换本地对应架构的 ZIP，避免本地旧包覆盖下载更新。启用的客户端转发与反向代理实例由现有更新流程复制新版内核。升级后可运行 `/opt/de_GWD/vtrui/vtrui version`，应显示 `26.10.21`。
+安装/更新时运行对应的 `server` 或 `client`；客户端离线安装须同时提供对应架构的 ZIP，避免旧本地包覆盖新资源。已有安装应先备份并确认旧应用与 WireGuard 数据不被自动清理；客户端 Web 更新和定时更新仅使用固定可信来源，不能把旧 `0conf` 中的更新 URL 当作可任意执行的脚本。
 
-Debian 13 amd64 验证：现有服务端配置和客户端 TPROXY、VMess TCP、WS/TLS 配置通过 `run -test`；隔离网络中实际跑通新版双端 TCP、Nginx 终止 TLS 的 WS 转发，以及新版客户端/旧版服务端、旧版客户端/新版服务端的 WS/TLS HTTP 传输。TLS 测试显式信任临时测试 CA，未关闭证书验证。arm64 已校验官方二进制与打包内容，未作实机运行验证；本轮未替换运行中服务的内核。
+历史双端验证（2026-10-24）：当时现有服务端配置与客户端 TPROXY、VMess TCP、WS/TLS 配置通过 `run -test`，隔离网络中测试了新版双端 TCP、Nginx 终止 TLS 的 WS 转发及新旧客户端/服务端互通，TLS 测试使用临时 CA 未关闭证书验证。arm64 仅校验旧版二进制/打包内容，未作实机验证；这些结果不等于本轮候选的整机、DNS、UDP 或新管理面的验收。
 
 兼容性变化：新版仍可使用 VMess 和 WebSocket，但会输出上游弃用提示，本次未迁移协议。新版默认拦截来自 VMess 等代理入站、经 freedom 出站访问回环或私网目标的连接；需要通过代理访问内网服务的用户应先评估此变化。本次保留官方默认规则，客户端 TPROXY 的配置检查不等于完整网关、UDP 和 DNS 分流验收。
 
@@ -134,8 +136,7 @@ chmod +x client
 * [ xanmod/linux ](https://github.com/xanmod/linux)
 * [ tsl0922/ttyd ](https://github.com/tsl0922/ttyd)
 * [ mikefarah/yq ](https://github.com/mikefarah/yq)
-* [ nyanmisaka/jellyfin ](https://hub.docker.com/r/nyanmisaka/jellyfin)
-* [ dani-garcia/vaultwarden ](https://github.com/dani-garcia/vaultwarden)
+
 
 ## Stargazers over time
 [![Stargazers over time](https://starchart.cc/jacyl4/de_GWD.svg)](https://starchart.cc/jacyl4/de_GWD)

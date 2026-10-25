@@ -1,0 +1,17 @@
+#!/bin/bash
+# Privilege helper: backup the core de_GWD configuration.
+# Called only by the root ui-admin dispatcher; never grant direct web sudo access.
+
+set -euo pipefail
+
+fail() { printf 'ui-backup: %s\n' "$*" >&2; exit 1; }
+
+[[ $EUID -eq 0 && $# -eq 1 && $1 == de_GWD ]] || fail 'Usage: ui-backup de_GWD (root only).'
+[[ -f /opt/de_GWD/0conf && ! -L /opt/de_GWD/0conf ]] || fail 'de_GWD config not found.'
+[[ -d /var/lib/de_GWD/restore ]] || fail 'Restore directory not installed.'
+temp=$(mktemp -d /var/lib/de_GWD/.backup-gwd.XXXXXXXX)
+trap 'rm -rf -- "$temp"' EXIT
+cp -p /opt/de_GWD/0conf "$temp/de_GWD_bak"
+    chown root:www-data "$temp/de_GWD_bak"
+    chmod 0640 "$temp/de_GWD_bak"
+mv -- "$temp/de_GWD_bak" /var/lib/de_GWD/restore/de_GWD_bak

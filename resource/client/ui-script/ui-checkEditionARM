@@ -1,2 +1,5 @@
 #!/bin/bash
-[[ $(dpkg --print-architecture) = "arm64" ]] && echo "ARM"
+if [[ $(dpkg --print-architecture) == arm64 ]]; then
+  echo ARM
+fi
+exit 0

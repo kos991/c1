@@ -1,3 +1,4 @@
 #!/bin/bash
-jq 'del(.inbounds[] | select(.tag == "forward0"))' /opt/de_GWD/vtrui/config.json | sponge /opt/de_GWD/vtrui/config.json
-systemctl restart vtrui >/dev/null
+source /opt/de_GWD/ui-route-lib
+route_config fwd0stop
+systemctl restart vtrui

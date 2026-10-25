@@ -1,4 +1,5 @@
 <?php
-passthru('/opt/de_GWD/ui-pingTCPDOH1');
+require_once('../auth.php');
+echo gwd_command('ui-pingTCPDOH1');
 die();
 ?>

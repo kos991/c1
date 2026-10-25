@@ -1,0 +1,161 @@
+#!/bin/bash
+# Shared implementation for the node UI entrypoints; installed root-owned.
+set -euo pipefail
+umask 077
+NODE_CONF=/opt/de_GWD/0conf
+NODE_XRAY=/opt/de_GWD/vtrui/config.json
+
+node_update() {
+    local target=$1 tmp lockfd
+    shift
+    [[ ! -L $target && -f $target ]] || return 1
+    if [[ $target == "$NODE_XRAY" ]]; then
+        exec {lockfd}>/opt/de_GWD/.routing.lock
+    else
+        exec {lockfd}>"${target}.node-lock"
+    fi
+    flock -x "$lockfd"
+    tmp=$(mktemp "${target}.node.XXXXXX")
+    if ! jq -e "$@" "$target" >"$tmp"; then
+        rm -f -- "$tmp"
+        exec {lockfd}>&-
+        return 1
+    fi
+    if [[ $target == "$NODE_CONF" ]]; then
+        chown root:www-data "$tmp"
+        chmod 0660 "$tmp"
+    elif [[ $target == "$NODE_XRAY" ]]; then
+        chown root:www-data "$tmp"
+        chmod 0640 "$tmp"
+    else
+        chown root:root "$tmp"
+        chmod 0600 "$tmp"
+    fi
+    mv -f -- "$tmp" "$target"
+    exec {lockfd}>&-
+}
+
+node_endpoint() {
+    local endpoint=$1
+    domain= port=443
+    if [[ $endpoint =~ ^\[([^]]+)\](:([0-9]+))?$ ]]; then
+        domain=${BASH_REMATCH[1]}
+        port=${BASH_REMATCH[3]:-443}
+    elif [[ $endpoint == *:*:* ]]; then
+        domain=$endpoint
+    elif [[ $endpoint == *:* ]]; then
+        domain=${endpoint%:*}
+        port=${endpoint##*:}
+    else
+        domain=$endpoint
+    fi
+    [[ -n $domain && $domain != -* && ! $domain =~ [[:space:]] && $domain != *'/'* && $domain != *'"'* && $domain != *'\\'* ]] || return 1
+    [[ $port =~ ^[0-9]{1,5}$ ]] || return 1
+    port=$((10#$port))
+    (( port >= 1 && port <= 65535 ))
+}
+
+node_load() {
+    local section=$1 index=${2:-} record
+    if [[ -n $index ]]; then
+        [[ $index =~ ^(0|[1-9][0-9]{0,8})$ ]] || return 1
+        record=$(jq -ce --arg index "$index" '.v2node[($index|tonumber)] | select(type == "object")' "$NODE_CONF")
+    else
+        record=$(jq -ce --arg section "$section" '
+            .v2nodeDIV[$section].address as $address |
+            if ($address // "") != "" then first(.v2node[] | select(.domain == $address))
+            elif $section == "nodeDT" then
+                .update.v2node | .domain = .domain + ":" + ((.port // 443)|tostring)
+            else empty end' "$NODE_CONF")
+    fi
+    address=$(jq -er '.domain | select(type == "string" and length > 0)' <<<"$record")
+    tls=$(jq -r '.tls // ""' <<<"$record")
+    uuid=$(jq -er '.uuid | select(type == "string" and length > 0)' <<<"$record")
+    path=$(jq -r '.path // ""' <<<"$record")
+    node_endpoint "$address"
+}
+
+node_outbound() {
+    local tag=$1 address=$2 tls=$3 uuid=$4 path=$5
+    [[ -n $tag && -n $uuid ]] || return 1
+    node_endpoint "$address"
+    tls=${tls:-$domain}
+    jq -n --arg tag "$tag" --arg domain "$domain" --argjson port "$port" --arg tls "$tls" --arg uuid "$uuid" --arg path "$path" '
+        {tag:$tag, protocol:"vmess", settings:{vnext:[{address:$domain, port:$port, users:[{id:$uuid, alterId:0, security:"auto"}]}]},
+         streamSettings:({network:"tcp", sockopt:{mark:255,tcpFastOpen:true,tcpNoDelay:true}} +
+            (if $path == "" then {} else {network:"ws",wsSettings:{path:$path,headers:{Host:$tls}},security:"tls",tlsSettings:{serverName:$tls,allowInsecure:false}} end)),
+         mux:{enabled:true,concurrency:1,xudpConcurrency:1,xudpProxyUDP443:(if $tag == "default" then "skip" else "reject" end)}}'
+}
+
+node_put_outbound() {
+    local outbound=$1
+    node_update "$NODE_XRAY" --argjson outbound "$outbound" '
+        if $outbound.tag == "default" then
+            .outbounds = [$outbound] + [(.outbounds // [])[] | select(.tag != "default" and .tag != "ss")]
+        else
+            .outbounds = [(.outbounds // [])[] | select(.tag != $outbound.tag)] + [$outbound]
+        end'
+}
+
+node_rule() {
+    local tag=$1 field=$2 values=$3
+    case $field in domain|ip|source) ;; *) return 1;; esac
+    node_update "$NODE_XRAY" --arg tag "$tag" --arg field "$field" --argjson values "$values" '
+        if ($values|type) != "array" or any($values[]; type != "string" or length == 0) then error("Invalid routing list")
+        elif ($values|length) == 0 then .
+        else {type:"field",($field):$values,network:"tcp,udp",outboundTag:$tag} as $rule |
+            if any(.outbounds[]?; .tag == $tag) then .routing.rules = [(.routing.rules // [])[] | select(. != $rule)] + [$rule]
+            else error("Missing routing outbound") end
+        end'
+}
+
+node_remove() {
+    node_update "$NODE_XRAY" --arg tag "$1" '
+        .outbounds |= map(select(.tag != $tag)) |
+        .routing.rules |= map(select(.outboundTag != $tag))'
+}
+
+node_nft_set() {
+    local name=$1 values=$2 tmp iptmp elements
+    case $name in V2NODE|listBlan|listWlan) ;; *) return 1;; esac
+    elements=$(jq -er '
+        def ipv4: split(".") | (length == 4 and all(.[]; test("^(0|[1-9][0-9]{0,2})$") and (tonumber <= 255)));
+        if type != "array" or any(.[]; type != "string" or (ipv4|not)) then error("Invalid IPv4 list")
+        else unique | join(", ") end' <<<"$values")
+    tmp=$(mktemp "/opt/de_GWD/nftables/.${name}.XXXXXX")
+    iptmp=$(mktemp "/opt/de_GWD/nftables/.IP_${name}.XXXXXX")
+    {
+        printf '#!/usr/sbin/nft -f\nflush set ip de_GWD %s\n' "$name"
+        if [[ -n $elements ]]; then
+            printf 'add element ip de_GWD %s { %s }\n' "$name" "$elements"
+        fi
+    } >"$tmp"
+    if ! nft -c -f "$tmp" || ! nft -f "$tmp"; then
+        rm -f -- "$tmp" "$iptmp"
+        return 1
+    fi
+    {
+        printf '#!/usr/sbin/nft -f\ntable ip de_GWD {\n set %s {\n type ipv4_addr\n flags interval\n auto-merge\n' "$name"
+        [[ -z $elements ]] || printf ' elements = { %s }\n' "$elements"
+        printf ' }\n}\n'
+    } >"$tmp"
+    jq -r 'unique[] + ","' <<<"$values" >"$iptmp"
+    chown root:root "$tmp" "$iptmp"
+    chmod 0700 "$tmp"
+    chmod 0600 "$iptmp"
+    mv -f -- "$tmp" "/opt/de_GWD/nftables/SET_${name}.nft"
+    mv -f -- "$iptmp" "/opt/de_GWD/nftables/IP_${name}"
+}
+
+node_check() {
+    jq -r --arg tag "$1" --arg mode "$2" --slurpfile conf "$NODE_CONF" '
+        ([.outbounds[]? | select(.tag == $tag)] | first // {}) as $outbound |
+        ($outbound.settings.vnext[0] // {}) as $server |
+        ([$conf[0].v2node | to_entries[] |
+            select($server.address != null and $server.port != null and
+                   (.value.domain == (if $server.port == 443 then $server.address else "" end) or
+                    .value.domain == ($server.address + ":" + ($server.port|tostring)) or
+                    .value.domain == ("[" + $server.address + "]:" + ($server.port|tostring))))] | first // {}) as $node |
+        if $mode == "media" then (if ($node.key|type) == "number" then $node.key + 1 else 0 end), ($node.value.name // "-none-")
+        else $node.value.name // empty end' "$NODE_XRAY"
+}

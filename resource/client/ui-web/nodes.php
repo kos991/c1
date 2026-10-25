@@ -11,7 +11,7 @@
   <meta name="description" content="">
   <meta name="author" content="">
 
-<title>节点管理</title>
+<title><?php echo gwd_h($config->address->alias); ?> - 节点管理</title>
 
   <!-- Custom fonts for this template-->
   <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
@@ -23,6 +23,8 @@
 
   <!-- Bootstrap core JavaScript-->
   <script src="vendor/jquery/jquery.min.js"></script>
+  <script>window.gwdCsrfToken = <?php echo json_encode($_SESSION['csrf_token']); ?>;</script>
+  <script src="js/security.js"></script>
   <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 
   <!-- Core plugin JavaScript-->
@@ -32,12 +34,6 @@
 
 <body id="page-top" class="sidebar-toggled">
 <?php $de_GWDconf = json_decode(file_get_contents('/opt/de_GWD/0conf')); ?>
-<?php $checkJellyfin = $de_GWDconf->app->jellyfin; ?>
-<?php $checkFileRun = file_exists('/var/www/html/filerun'); ?>
-<?php $checkBitwarden = $de_GWDconf->app->bitwarden; ?>
-
-<?php $FileRunWebConf = file_get_contents ('/etc/nginx/conf.d/filerun.conf'); preg_match_all('/(?<=\blisten )\S+/is', $FileRunWebConf, $FileRunPort); $FileRunPort = $FileRunPort[0][0] ?>
-<?php $WebConf = file_get_contents ('/etc/nginx/conf.d/default.conf'); preg_match_all('/(?<=\bserver_name )\S+/is', $WebConf, $serverName); $serverName = rtrim($serverName[0][0],";") ?>
   <nav class="navbar navbar-expand navbar-dark bg-dark static-top">
 
     <a class="navbar-brand mr-1" href="index.php">寒月</a>
@@ -46,7 +42,7 @@
     <button id="sidebarToggle" class="btn btn-link btn-sm text-white order-1 order-sm-0" href="javascript:void(0)">
       <i class="fas fa-bars"></i>
     </button>
-<span class="float-right badge text-info"><?php passthru('sudo /opt/de_GWD/ui-checkEditionARM');?></span>
+<span class="float-right badge text-info"><?php echo gwd_h(gwd_command('ui-checkEditionARM'));?></span>
 
     <!-- Navbar Search -->
     <form class="d-none d-md-inline-block form-inline ml-auto mr-0 mr-md-3 my-2 my-md-0">
@@ -54,27 +50,6 @@
 
     <!-- Navbar -->
     <ul class="nav navbar-nav ml-auto ml-md-0">
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkFileRun === true) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(<?php if ($serverName != "de_GWD") echo "'https://$serverName:$FileRunPort'"; else echo "location.origin+':$FileRunPort'" ?>)">
-          <i class="fas fa-folder"></i>
-          <span>FileRun</span>
-        </a>
-      </li>
-
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkJellyfin === installed) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(location.origin+':8097')">
-          <i class="fab fa-youtube"></i>
-          <span>Jellyfin</span>
-        </a>
-      </li>
-
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkBitwarden === installed) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(location.origin+':8099')">
-          <i class="fas fa-shield-alt"></i>
-          <span>Bitwarden</span>
-        </a>
-      </li>
-      
       <li class="nav-item no-arrow mx-1">
         <a class="nav-link" href="/admin/" onclick="javascript:event.target.port=location.port" target="_blank">
           <i class="fab fa-raspberry-pi"></i>
@@ -99,16 +74,6 @@
         <a class="nav-link" href="forward.php">
           <i class="fas fa-project-diagram"></i>
           <span>中转</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ddns.php">
-          <i class="fas fa-ethernet"></i>
-          <span>DDNS & Wireguard</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="app.php">
-          <i class="fab fa-app-store-ios"></i>
-          <span>应用</span></a>
       </li>
       <li class="nav-item active">
         <a class="nav-link" href="nodes.php">
@@ -148,7 +113,7 @@
         <h5 id="markThisLabel" class="modal-title">备注本机</h5>
       </div>
       <div class="modal-body">
-        <input id="markName" type="text" class="form-control" placeholder="备注名" required="required" value="<?php echo $de_GWDconf->address->alias ?>">
+        <input id="markName" type="text" class="form-control" placeholder="备注名" required="required" value="<?php echo gwd_h($de_GWDconf->address->alias) ?>">
       </div>
       <div class="modal-footer">
         <button id="buttonMarkThis" type="button" class="btn btn-outline-dark btn-sm">应用</button>
@@ -192,11 +157,11 @@
 <?php 
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
   $num = $i+1;
-  $domain = $de_GWDconf->v2node[$i]->domain;
-  $tls = $de_GWDconf->v2node[$i]->tls;
-  $name = $de_GWDconf->v2node[$i]->name;
-  $path = $de_GWDconf->v2node[$i]->path;
-  $uuid = $de_GWDconf->v2node[$i]->uuid;
+  $domain = gwd_h($de_GWDconf->v2node[$i]->domain);
+  $tls = gwd_h($de_GWDconf->v2node[$i]->tls);
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
+  $path = gwd_h($de_GWDconf->v2node[$i]->path);
+  $uuid = gwd_h($de_GWDconf->v2node[$i]->uuid);
 print <<<EOT
 <tr>
 <td class="align-middle">$num</td>
@@ -251,7 +216,7 @@ $('#nodeTable').append(`
     <div class="modal-content">
       <div class="modal-body">
         <div class="input-group">
-          <input id="serverName${i}" type="text" class="form-control" value="${tlsValue}"></input>
+          <input id="serverName${i}" type="text" class="form-control"></input>
           <div class="input-group-append">
             <button id="serverNameSave${i}" type="button" class="btn btn-secondary btn-sm">保存</button>
           </div>
@@ -261,6 +226,7 @@ $('#nodeTable').append(`
   </div>
 </div>
                         `)
+$('#serverName'+i).val(tlsValue)
 $('#commitTlsModal'+i).modal('show')
 
 $('#serverNameSave'+i).click(function(){
@@ -290,12 +256,12 @@ current.insertAfter(next);
 
 $(function(){
 $('#buttonLogout').click(function(){
-$.get('auth.php', {logout:'true'}, function(result){window.location.href="index.php"})
+$.post('auth.php', {logout:'true'}, function(result){window.location.href="index.php"})
 })
 
 $('#buttonMarkThis').click(function(){
 markNametxt=$('#markName').val()
-$.get('./act/markThis.php', {markName:markNametxt}, function(result){window.location.reload()})
+$.post('./act/markThis.php', {markName:markNametxt}, function(result){window.location.reload()})
 })
 
 $('#buttonAddLine').click(function(){
@@ -340,7 +306,7 @@ for( let i = 0; i<len; i++){
     nodeList.push({domain, tls, name, uuid, path})
     }
 }
-$.get("./act/NodeSave.php", {nodeList:nodeList}, function(result){
+$.post("./act/NodeSave.php", {nodeList:nodeList}, function(result){
   $("#buttonSaveNodeLoading").removeClass()
   window.location.href="index.php"
 })

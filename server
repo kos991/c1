@@ -9,7 +9,7 @@ CYAN='\E[1;36m'
 WHITE='\E[1;37m'
 cRES='\E[0m'
 
-chmod 777 /tmp
+chmod 1777 /tmp
 architecture=$(dpkg --print-architecture)
 [[ "openvz lxc lxc-libvirt systemd-nspawn docker podman proot pouch" =~ $(systemd-detect-virt) ]] && virt_type="container"
 export DEBIAN_FRONTEND=noninteractive
@@ -132,30 +132,8 @@ unset aptPKG
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^unbound$') ]] && aptPKG+=(unbound)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^libbrotli1') ]] && aptPKG+=(libbrotli1)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^libcrypt1') ]] && aptPKG+=(libcrypt1)
-[[ $architecture = arm64 ]] && aptPKG+=(google-perftools)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^irqbalance$') ]] && [[ $(nproc --all) -gt 1 ]] && aptPKG+=(irqbalance)
-[[ -n $aptPKG ]] && apt update && apt install $(echo ${aptPKG[@]})
-installNginxAllocator
-}
-
-installNginxAllocator(){
-[[ $architecture != amd64 ]] && return 0
-dpkg-query -W -f='${Status}' libmimalloc2.0 2>/dev/null | grep -q '^install ok installed$' && return 0
-if [[ $debianCodename = trixie ]]; then
-    # The bundled amd64 nginx needs SONAME libmimalloc.so.2, not .so.3.
-    local package
-    package=$(mktemp /tmp/de-gwd-mimalloc.XXXXXX.deb) || exit 1
-    if ! curl -fsSLo "$package" https://deb.debian.org/debian/pool/main/m/mimalloc/libmimalloc2.0_2.0.9+ds-2_amd64.deb ||
-       ! echo "a20035605a532be3186f0f48607c7106fe2a5551066c29de663c965692c446c4  $package" | sha256sum -c -; then
-        rm -f "$package"
-        echo 'Nginx libmimalloc2.0 download or checksum failed' >&2
-        exit 1
-    fi
-    apt install -y "$package" || { rm -f "$package"; exit 1; }
-    rm -f "$package"
-else
-    apt install -y libmimalloc2.0 || exit 1
-fi
+[[ -n $aptPKG ]] && apt update && apt install "${aptPKG[@]}"
 }
 
 
@@ -214,15 +192,19 @@ wget --show-progress -cqO /tmp/sample.zip https://raw.githubusercontent.com/kos9
 [[ $(checkSum /tmp/sample.zip $sha256sum_sample) = "true" ]] && mv -f /tmp/sample.zip /opt/de_GWD/.repo/sample.zip
 fi
 
-localVer=$(awk 'NR==1' /opt/de_GWD/version.php 2>/dev/null)
-remoteVer=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/main/version.php | head -n 1)
-
-if [[ $localVer != $remoteVer ]]; then
-rm -rf /tmp/version.php
-wget --show-progress -cqO /tmp/version.php https://raw.githubusercontent.com/kos991/c1/main/version.php
-[[ $? -ne 0 ]] && echo -e "${WHITE}Version File${RED} Download Failed${cRES}" && exit
-[[ $(du -sk /tmp/version.php 2>/dev/null | awk '{print$1}') -ge 4 ]] && mv -f /tmp/version.php /opt/de_GWD/version.php
+if [[ -f ./version.php ]]; then
+    install -m 0644 ./version.php /opt/de_GWD/version.php || return 1
+else
+    local version_file
+    version_file=$(mktemp) || return 1
+    if ! curl -fsSL --max-time 15 -o "$version_file" "https://raw.githubusercontent.com/kos991/c1/$branch/version.php"; then
+        rm -f "$version_file"
+        return 1
+    fi
+    install -m 0644 "$version_file" /opt/de_GWD/version.php || { rm -f "$version_file"; return 1; }
+    rm -f "$version_file"
 fi
+[[ $(head -n 1 /opt/de_GWD/version.php) =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\+C1)?$ ]] || return 1
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Repository${cRES}"
 }
@@ -340,13 +322,6 @@ fi
 
 mkdir -p /opt/de_GWD
 mkdir -p /opt/de_GWD/.repo
-cat << "EOF" >/opt/de_GWD/tcpTime
-date -s "$(wget -qSO- --max-redirect=0 whatismyip.akamai.com 2>&1 | grep Date: | cut -d' ' -f5-8)Z"
-[[ $? -ne "0" ]]&& date -s "$(curl -sI cloudflare.com| grep -i '^date:'|cut -d' ' -f2-)"
-hwclock -w
-EOF
-chmod +x /opt/de_GWD/tcpTime
-[[ $virt_type != "container" ]] && /opt/de_GWD/tcpTime
 
 cat << EOF >/etc/apt/apt.conf.d/01InstallLess
 APT::Get::Assume-Yes "true";
@@ -428,10 +403,6 @@ DefaultLimitNPROC=1000000
 EOF
 systemctl daemon-reload
 
-rm -f /var/cache/apt/archives/lock
-rm -f /var/lib/apt/lists/lock
-rm -f /var/lib/dpkg/lock
-rm -f /var/lib/dpkg/lock-frontend
 dpkg --configure -a
 
 if [[ $debianCodename != trixie ]]; then
@@ -444,7 +415,7 @@ EOF
 fi
 
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 
 pkgDEP
 
@@ -910,8 +881,6 @@ table inet filter {
                 tcp flags & (fin|syn|rst|psh|ack|urg) == 0 drop
                 tcp flags & (fin|psh|urg) == (fin|psh|urg) drop
                 ct state invalid counter drop
-                # Drop 53 in
-                meta l4proto { tcp, udp } th dport 53 drop
                 meta l4proto { tcp, udp } th dport 4711 drop
         }
         chain FORWARD {
@@ -1513,7 +1482,6 @@ cat << "EOF" >/opt/de_GWD/Q2H
 virt=$(systemd-detect-virt)
 virtCON="openvz lxc lxc-libvirt systemd-nspawn docker podman rkt wsl proot pouch"
 
-[[ $virt_type != "container" ]] && /opt/de_GWD/tcpTime
 
 rm -rf ~/server*
 rm -rf ~/wget-log
@@ -1537,25 +1505,12 @@ chmod +x /opt/de_GWD/Qday
 
 
 
-cat << "EOF" >/etc/rc_kernel.local
-#!/bin/bash
-PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
-
-rm -f /var/cache/apt/archives/lock
-rm -f /var/lib/apt/lists/lock
-rm -f /var/lib/dpkg/lock
-rm -f /var/lib/dpkg/lock-frontend
-dpkg --configure -a
-
-dpkg --list | grep linux-image | awk '{print $2}' | grep -Fv $(uname -r) | while read line; do
-apt autoremove --purge  -y $line
-done
-
-dpkg --list | grep linux-headers | awk '{print $2}' | grep -Fv $(uname -r) | while read line; do
-apt autoremove --purge  -y $line
-done
-EOF
-chmod +x /etc/rc_kernel.local
+# Retire the legacy reboot hook; never delete fallback kernels automatically.
+if [[ -f /etc/rc_kernel.local ]] && grep -Fq 'apt autoremove' /etc/rc_kernel.local; then
+    install -d -m 0700 /opt/de_GWD/kernel-backup || return 1
+    cp -p /etc/rc_kernel.local "/opt/de_GWD/kernel-backup/rc_kernel.local.$(date +%Y%m%d%H%M%S).$$" || return 1
+    rm -f /etc/rc_kernel.local || return 1
+fi
 
 
 crontab -l 2>/dev/null >/tmp/now.cron
@@ -1568,7 +1523,6 @@ sed -i '/\/etc\/rc_.*/d' /tmp/now.cron
 cat << EOF >>/tmp/now.cron
 0 */2 * * * /opt/de_GWD/Q2H
 0 0 * * * /opt/de_GWD/Qday
-@reboot sleep 15 && /etc/rc_kernel.local
 EOF
 crontab /tmp/now.cron
 rm -rf /tmp/now.cron
@@ -2034,7 +1988,7 @@ EOF
 
 sed -i "s/ stretch / buster /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 fi
 
 if [[ $debianCodename != trixie ]]; then
@@ -2056,7 +2010,7 @@ sed -i "s/ buster / bookworm /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 sed -i "s/ bullseye / bookworm /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 fi
 apt update --fix-missing && apt upgrade --allow-downgrades -y
-apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
+apt full-upgrade -y && apt clean -y && apt autoclean -y
 
 preInstall
 
@@ -2128,15 +2082,13 @@ checkKernel
 enableAutoUpdate(){
 cat << "EOF" >/opt/de_GWD/autoUpdate
 #!/bin/bash
-localVer=$(awk 'NR==1' /opt/de_GWD/version.php)
-remoteVer=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/main/version.php | head -n 1)
+localVer=$(head -n 1 /opt/de_GWD/version.php)
+remoteVer=$(curl -fsSL --max-time 10 https://raw.githubusercontent.com/kos991/c1/main/version.php | head -n 1)
+[[ $localVer =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\+C1)?$ && $remoteVer =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\+C1)?$ ]] || exit 1
+localVer=${localVer%+C1}
+remoteVer=${remoteVer%+C1}
 
-echo $localVer >/tmp/de_GWD_Ver
-echo $remoteVer >>/tmp/de_GWD_Ver
-
-VerCP=$(cat /tmp/de_GWD_Ver | sort -rV | uniq | awk NR==2)
-
-if [[ $VerCP == $localVer ]]; then
+if dpkg --compare-versions "${remoteVer#v}" gt "${localVer#v}"; then
 rm -rf /tmp/autoUpdate
 wget -t 5 -T 10 -cqO /tmp/autoUpdate https://raw.githubusercontent.com/kos991/c1/main/server
 
@@ -2149,8 +2101,6 @@ rm -rf /tmp/autoUpdate
 fi
 fi
 
-rm -rf /tmp/de_GWD_Ver
-rm -rf /tmp/autoUpdate
 EOF
 chmod +x /opt/de_GWD/autoUpdate
 

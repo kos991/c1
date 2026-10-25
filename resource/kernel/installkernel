@@ -2,6 +2,10 @@
 # XanMod-only adapter informed by Eric86777/vps-tcp-tune v5.4.19
 # Reference commit: 7c2301cb3395ea8363ae7401719b416eb830714f
 # No upstream toolbox, network tuning, automatic kernel cleanup, or automatic reboot.
+# Repository/package contract: https://xanmod.org/ (APT Repository and psABI table).
+# Keep the signed source for future APT upgrades; validate the installed metapackage's
+# dependency, never the newest unrelated kernel. Restore repairs missing boot files
+# without install-only space, Secure Boot, or DKMS gates. Reboots remain manual.
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 
@@ -48,10 +52,54 @@ selectPackage() {
     fail 'No installable XanMod candidate matches this CPU and Debian release.'
 }
 
+installedImageDependency() {
+    local package=$1 dependencies dependency image= status relation= required= version
+    local pattern='^[[:space:]]*(linux-image-[a-zA-Z0-9.+-]+)(:amd64)?([[:space:]]+\((<<|<=|=|>=|>>)[[:space:]]+([^ )]+)\))?[[:space:]]*$'
+    local -a entries=()
+    [[ $(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null) = installed ]] || return 1
+    dependencies=$(dpkg-query -W -f='${Depends}' "$package" 2>/dev/null) || return 1
+    IFS=, read -r -a entries <<<"$dependencies"
+    for dependency in "${entries[@]}"; do
+        [[ $dependency =~ $pattern ]] || continue
+        [[ -z $image ]] || { fail "Ambiguous image dependencies for $package."; return 1; }
+        image=${BASH_REMATCH[1]}
+        relation=${BASH_REMATCH[4]}
+        required=${BASH_REMATCH[5]}
+    done
+    [[ -n $image ]] || { fail "No direct image dependency for $package."; return 1; }
+    status=$(dpkg-query -W -f='${db:Status-Status}' "$image" 2>/dev/null) || return 1
+    [[ $status = installed ]] || { fail "Image dependency $image is not installed."; return 1; }
+    if [[ -n $relation ]]; then
+        version=$(dpkg-query -W -f='${Version}' "$image" 2>/dev/null) || return 1
+        dpkg --compare-versions "$version" "$relation" "$required" || {
+            fail "Image dependency $image does not satisfy $relation $required."; return 1;
+        }
+    fi
+    printf '%s\n' "$image"
+}
+
+isDebianImage() {
+    local package=$1 metadata status source maintainer
+    [[ $package =~ ^linux-image-[0-9].*-amd64$ && $package != *xanmod* ]] || return 1
+    metadata=$(dpkg-query -W -f='${db:Status-Status}|${source:Package}|${Maintainer}' "$package" 2>/dev/null) || return 1
+    IFS='|' read -r status source maintainer <<<"$metadata"
+    [[ $status = installed && ( $source = linux || $source = linux-signed-amd64 ) && $maintainer = *'Debian Kernel Team'* ]]
+}
+
+prepareBootFiles() {
+    local release=$1 mode=-u
+    [[ -s /boot/vmlinuz-$release && -d /lib/modules/$release ]] || { fail 'Installed kernel artifacts are incomplete.'; return 1; }
+    [[ -s /boot/initrd.img-$release ]] || mode=-c
+    update-initramfs "$mode" -k "$release" && update-grub || return 1
+    [[ -s /boot/initrd.img-$release ]] && grep -Fq "vmlinuz-$release" /boot/grub/grub.cfg || {
+        fail 'Requested kernel is missing from boot files/GRUB.'; return 1;
+    }
+}
+
 fallbackKernels() {
     local package release
     while read -r package; do
-        [[ $package =~ ^linux-image-[0-9].*-amd64$ && $package != *xanmod* ]] || continue
+        isDebianImage "$package" || continue
         release=${package#linux-image-}
         [[ -s /boot/vmlinuz-$release && -s /boot/initrd.img-$release && -d /lib/modules/$release ]] && echo "$package"
     done < <(installedPackages)
@@ -76,7 +124,7 @@ showStatus() {
 }
 
 preflight() {
-    local ID VERSION_CODENAME secureboot file available rootAvailable
+    local action=${1:-install} ID VERSION_CODENAME secureboot file available rootAvailable
     [[ -r /etc/os-release ]] || { fail 'Cannot identify the OS.'; return 1; }
     . /etc/os-release
     [[ $ID = debian && ( $VERSION_CODENAME = trixie || $VERSION_CODENAME = bookworm ) ]] || {
@@ -93,6 +141,8 @@ preflight() {
     command -v update-grub >/dev/null 2>&1 && command -v update-initramfs >/dev/null 2>&1 || {
         fail 'GRUB and initramfs-tools are required; this adapter will not replace your bootloader.'; return 1;
     }
+    # Recovery must work when the running kernel or GRUB files need repair.
+    [[ $action = install ]] || return 0
     [[ -s /boot/grub/grub.cfg && -s /boot/vmlinuz-$(uname -r) ]] || {
         fail 'Cannot verify the active boot kernel and GRUB configuration.'; return 1;
     }
@@ -132,7 +182,11 @@ protectFallback() {
     local -a fallback=()
     mapfile -t fallback < <(fallbackKernels)
     (( ${#fallback[@]} )) || { fail 'No usable Debian fallback kernel; choose Restore Debian first.'; return 1; }
-    apt-mark manual "linux-image-$(uname -r)" "${fallback[@]}" || return 1
+    local running="linux-image-$(uname -r)"
+    if [[ $(dpkg-query -W -f='${db:Status-Status}' "$running" 2>/dev/null) = installed ]]; then
+        apt-mark manual "$running" || return 1
+    fi
+    apt-mark manual "${fallback[@]}" || return 1
 }
 
 configureRepo() {
@@ -168,56 +222,57 @@ confirm() {
 }
 
 installKernel() {
-    local suite package release
-    preflight || return 1
+    local suite package image release
+    preflight install || return 1
     [[ -n $(fallbackKernels) ]] || { fail 'Install a Debian fallback first (menu 2).'; return 1; }
     confirm 'Install/update XanMod; keep all existing kernels and network settings?' || return 0
     retireLegacyCleanup && protectFallback || return 1
-    apt-get update && apt-get install -y curl gnupg ca-certificates || return 1
+    apt-get update && apt-get install --no-remove -y curl gnupg ca-certificates || return 1
     suite=$(. /etc/os-release; printf '%s' "$VERSION_CODENAME")
     configureRepo "$suite" || return 1
-    if ! apt-get update; then
-        rm -f /etc/apt/sources.list.d/c1-xanmod.list
-        return 1
-    fi
-    package=$(selectPackage "$suite" "$(cpuLevel)") || { rm -f /etc/apt/sources.list.d/c1-xanmod.list; return 1; }
-    if ! apt-get install -y "$package"; then
-        rm -f /etc/apt/sources.list.d/c1-xanmod.list
-        return 1
-    fi
-    rm -f /etc/apt/sources.list.d/c1-xanmod.list
-    installedPackages | grep -Fxq "$package" || return 1
-    release=$(installedPackages | awk '/^linux-image-[0-9].*xanmod/ {sub(/^linux-image-/, ""); print}' | sort -V | tail -n 1)
-    [[ -n $release && -s /boot/vmlinuz-$release && -d /lib/modules/$release ]] || { fail 'Installed kernel artifacts are incomplete.'; return 1; }
-    update-initramfs -u -k "$release" && update-grub || return 1
-    [[ -s /boot/initrd.img-$release ]] && grep -Fq "vmlinuz-$release" /boot/grub/grub.cfg || { fail 'New kernel is missing from boot files/GRUB.'; return 1; }
-    apt-mark manual "linux-image-$release" || return 1
+    # Preserve the signed repository even on failure so existing installations
+    # remain upgradable and an interrupted installation can be retried.
+    apt-get update || return 1
+    package=$(selectPackage "$suite" "$(cpuLevel)") || return 1
+    apt-get install --no-remove -y "$package" || return 1
+    image=$(installedImageDependency "$package") || return 1
+    [[ $image = linux-image-*xanmod* ]] || { fail 'Selected package does not depend on a XanMod image.'; return 1; }
+    release=${image#linux-image-}
+    prepareBootFiles "$release" || return 1
+    apt-mark manual "$package" "$image" || return 1
     printf 'Installed %s; running %s. Select the new kernel in GRUB and reboot in a maintenance window.\n' "$release" "$(uname -r)"
     printf 'No automatic reboot, qdisc change, or old-kernel removal. BBR v3 requires post-reboot verification.\n'
 }
 
 restoreDebian() {
-    preflight || return 1
+    local image
+    preflight restore || return 1
     confirm 'Install/repair the Debian fallback kernel without removing XanMod?' || return 0
     retireLegacyCleanup || return 1
-    apt-mark manual "linux-image-$(uname -r)" || return 1
-    apt-get update && apt-get install -y linux-image-amd64 && update-initramfs -u -k all && update-grub || return 1
-    [[ -n $(fallbackKernels) ]] || { fail 'Debian fallback boot files could not be verified.'; return 1; }
+    apt-get update && apt-get install --no-remove --reinstall -y linux-image-amd64 || return 1
+    image=$(installedImageDependency linux-image-amd64) || return 1
+    isDebianImage "$image" || { fail 'The fallback dependency is not a Debian kernel package.'; return 1; }
+    # Reinstall the actual image: reinstalling only its metapackage does not
+    # restore a deleted vmlinuz or modules directory.
+    apt-get install --no-remove --reinstall -y "$image" || return 1
+    prepareBootFiles "${image#linux-image-}" || return 1
+    apt-mark manual linux-image-amd64 || return 1
     protectFallback || return 1
     echo 'Debian fallback ready. Select it in GRUB and reboot manually before removing XanMod.'
 }
 
 removeXanmod() {
     local -a packages=()
-    preflight || return 1
-    [[ $(uname -r) != *xanmod* ]] || { fail 'Boot a Debian kernel before removing XanMod.'; return 1; }
-    [[ -n $(fallbackKernels) ]] || { fail 'No usable Debian fallback kernel.'; return 1; }
+    preflight remove || return 1
+    fallbackKernels | grep -Fxq "linux-image-$(uname -r)" || {
+        fail 'Boot a verified, installed Debian fallback kernel before removing XanMod.'; return 1;
+    }
     mapfile -t packages < <(installedPackages | grep -E '^linux-(image-|headers-|xanmod).*xanmod|^linux-xanmod')
     (( ${#packages[@]} )) || { echo 'No XanMod packages installed.'; return 0; }
     printf 'Packages to remove: %s\n' "${packages[*]}"
     confirm 'Remove only these XanMod packages? No autoremove will run.' || return 0
     retireLegacyCleanup && protectFallback || return 1
-    apt-get purge -y "${packages[@]}" && update-grub || return 1
+    apt-get -o APT::Get::AutomaticRemove=false purge -y "${packages[@]}" && update-grub || return 1
 }
 
 main() {

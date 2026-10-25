@@ -1,11 +1,8 @@
 <?php require_once('../auth.php'); ?>
-<?php if (isset($auth) && $auth) {?>
+<?php require_once __DIR__ . '/helpers.php'; ?>
+<?php if (isset($auth) && $auth) { ?>
 <?php
-exec('sudo rm -rf /var/www/html/restore/de_GWD_bak &');
-if ($_FILES["file"]["name"] == "de_GWD_bak")
-{
-	move_uploaded_file($_FILES['file']['tmp_name'], '../restore/' . "de_GWD_bak");
-	exec('sudo /opt/de_GWD/ui-restore &');
-}
+$id = gwd_restore_upload('de_GWD_bak');
+gwd_command('ui-restore', [$id], true);
 ?>
-<?php }?>
+<?php } ?>

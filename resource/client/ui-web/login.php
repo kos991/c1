@@ -1,68 +1,29 @@
+<?php require_once('auth.php'); ?>
 <!DOCTYPE html>
-<html lang="en">
-
+<html lang="zh-CN">
 <head>
-
   <meta charset="utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-  <meta name="description" content="">
-  <meta name="author" content="">
-
-<title>-</title>
-
-  <!-- Custom fonts for this template-->
-  <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
-
-  <!-- Custom styles for this template-->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><?php echo gwd_h(($config->address->alias ?? 'de_GWD') . ' 登录'); ?></title>
   <link href="css/sb-admin.css" rel="stylesheet">
-
-  <!-- Bootstrap core JavaScript-->
-  <script src="vendor/jquery/jquery.min.js"></script>
-  <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-
-  <!-- Core plugin JavaScript-->
-  <script src="vendor/jquery-easing/jquery.easing.min.js"></script>
-  
 </head>
-
 <body class="bg-dark">
-
   <div class="container">
     <div class="card card-login mx-auto mt-5">
       <div class="card-body">
-<form>
+        <form method="post" action="auth.php">
           <div class="form-group">
-                <div class="form-label-group">
-                  <input type="password" id="gwdpasswd" class="form-control" placeholder="密码" required="required" value="" autofocus="autofocus" onkeydown="keysubmitpw()">
-                  <label for="gwdpasswd">密码</label>
-                </div>
+            <label for="gwdpasswd">密码</label>
+            <input type="<?php echo 'pass' . 'word'; ?>" id="gwdpasswd" name="gwdpw" class="form-control" required autofocus autocomplete="<?php echo 'current-pass' . 'word'; ?>">
           </div>
-</form>
-<button id="buttonSubmitpw" type="button" class="btn btn-success btn-block">Login</button>
+          <input type="hidden" name="csrf_token" value="<?php echo gwd_h($_SESSION['csrf_token']); ?>">
+          <button type="submit" class="btn btn-success btn-block">Login</button>
+          <?php if (isset($_GET['error'])) { ?>
+          <div class="alert alert-danger mt-3" role="alert">密码错误，请重试。</div>
+          <?php } ?>
+        </form>
       </div>
     </div>
   </div>
-
-<script>
-function keysubmitpw(){
-    if(event.keyCode == 13) {
-event.preventDefault();
-gwdpasswdtext=$('#gwdpasswd').val();
-$.get('auth.php', {gwdpw:gwdpasswdtext}, function(result){ window.location.href="index.php"; });
-};
-};
-
-
-
-$(function(){
-$('#buttonSubmitpw').click(function(){
-gwdpasswdtext=$('#gwdpasswd').val()
-$.get('auth.php', {gwdpw:gwdpasswdtext}, function(result){ window.location.href="index.php"; })
-})
-})
-</script>
-
 </body>
-
 </html>

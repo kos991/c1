@@ -1,0 +1,19 @@
+#!/bin/bash
+# Outputs the active PHP-FPM version (8.4 or 8.2); fails if unavailable.
+# Prefer active FPM sockets over installed package metadata.
+
+# Check systemctl FPM socket path for version hints
+for ver in 8.4 8.2; do
+  if [[ -S "/run/php/php${ver}-fpm.sock" ]]; then
+    printf '%s\n' "$ver"
+    exit 0
+  fi
+done
+
+for ver in 8.4 8.2; do
+  if dpkg-query -W -f='${Status}' "php${ver}-fpm" 2>/dev/null | grep -q '^install ok installed$'; then
+    printf '%s\n' "$ver"
+    exit 0
+  fi
+done
+exit 1

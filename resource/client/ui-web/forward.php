@@ -11,7 +11,7 @@
   <meta name="description" content="">
   <meta name="author" content="">
 
-<title>中转</title>
+<title><?php echo gwd_h($config->address->alias); ?> - 中转</title>
 
   <!-- Custom fonts for this template-->
   <link href="vendor/fontawesome-free/css/all.min.css" rel="stylesheet" type="text/css">
@@ -23,6 +23,8 @@
 
   <!-- Bootstrap core JavaScript-->
   <script src="vendor/jquery/jquery.min.js"></script>
+  <script>window.gwdCsrfToken = <?php echo json_encode($_SESSION['csrf_token']); ?>;</script>
+  <script src="js/security.js"></script>
   <script src="vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
 
   <!-- Core plugin JavaScript-->
@@ -34,33 +36,27 @@
 
 <body id="page-top" class="sidebar-toggled">
 <?php $de_GWDconf = json_decode(file_get_contents('/opt/de_GWD/0conf')); ?>
-<?php $checkJellyfin = $de_GWDconf->app->jellyfin; ?>
-<?php $checkFileRun = file_exists('/var/www/html/filerun'); ?>
-<?php $checkBitwarden = $de_GWDconf->app->bitwarden; ?>
-
 <?php $checkCer = file_exists('/var/www/ssl/de_GWD.cer'); ?>
 
-<?php $checkcoredns = exec('sudo systemctl is-active coredns'); ?>
+<?php $checkcoredns = trim(gwd_command('serviceStatus', array('coredns'))); ?>
 <?php $DoGsConf = strpos(file_get_contents('/opt/de_GWD/coredns/corefile'),'grpc://.:');?>
 
 <?php $checkBlock53 = $de_GWDconf->FORWARD->block53; ?>
 
-<?php $checkVtrui = exec('sudo systemctl is-active vtrui'); ?>
+<?php $checkVtrui = trim(gwd_command('serviceStatus', array('vtrui'))); ?>
 <?php $vtruiConf = json_decode(file_get_contents('/opt/de_GWD/vtrui/config.json')); ?>
 <?php $checkFWD0 = empty($vtruiConf->inbounds[1]); ?>
 
-<?php $checkVtrui1 = exec('sudo systemctl is-active vtrui1'); ?>
-<?php $checkFWD1OB = explode("\n", shell_exec('sudo /opt/de_GWD/ui-checkFWD1')); ?>
+<?php $checkVtrui1 = trim(gwd_command('serviceStatus', array('vtrui1'))); ?>
+<?php $checkFWD1OB = explode("\n", gwd_command('ui-checkFWD1')); ?>
 <?php $checkFWD1 = file_exists('/opt/de_GWD/vtrui1/config.json'); ?>
 
-<?php $checkRproxyS = exec('sudo systemctl is-active RproxyS'); ?>
+<?php $checkRproxyS = trim(gwd_command('serviceStatus', array('RproxyS'))); ?>
 <?php $RproxySconf = json_decode(file_get_contents('/opt/de_GWD/RproxyS/config.json')); ?>
 
-<?php $checkRproxyC = exec('sudo systemctl is-active RproxyC'); ?>
+<?php $checkRproxyC = trim(gwd_command('serviceStatus', array('RproxyC'))); ?>
 <?php $RproxyCconf = json_decode(file_get_contents('/opt/de_GWD/RproxyC/config.json')); ?>
 
-<?php $FileRunWebConf = file_get_contents ('/etc/nginx/conf.d/filerun.conf'); preg_match_all('/(?<=\blisten )\S+/is', $FileRunWebConf, $FileRunPort); $FileRunPort = $FileRunPort[0][0] ?>
-<?php $WebConf = file_get_contents ('/etc/nginx/conf.d/default.conf'); preg_match_all('/(?<=\bserver_name )\S+/is', $WebConf, $serverName); $serverName = rtrim($serverName[0][0],";") ?>
   <nav class="navbar navbar-expand navbar-dark bg-dark static-top">
 
     <a class="navbar-brand mr-1" href="index.php">寒月</a>
@@ -69,7 +65,7 @@
     <button class="btn btn-link btn-sm text-white order-1 order-sm-0" id="sidebarToggle" href="#">
       <i class="fas fa-bars"></i>
     </button>
-<span class="float-right badge text-info"><?php passthru('sudo /opt/de_GWD/ui-checkEditionARM');?></span>
+<span class="float-right badge text-info"><?php echo gwd_h(gwd_command('ui-checkEditionARM'));?></span>
 
     <!-- Navbar Search -->
     <form class="d-none d-md-inline-block form-inline ml-auto mr-0 mr-md-3 my-2 my-md-0">
@@ -77,27 +73,6 @@
 
     <!-- Navbar -->
     <ul class="nav navbar-nav ml-auto ml-md-0">
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkFileRun === true) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(<?php if ($serverName != "de_GWD") echo "'https://$serverName:$FileRunPort'"; else echo "location.origin+':$FileRunPort'" ?>)">
-          <i class="fas fa-folder"></i>
-          <span>FileRun</span>
-        </a>
-      </li>
-
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkJellyfin === installed) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(location.origin+':8097')">
-          <i class="fab fa-youtube"></i>
-          <span>Jellyfin</span>
-        </a>
-      </li>
-
-      <li class="nav-item no-arrow mx-1" style="display:<?php if ($checkBitwarden === installed) echo 'block'; else echo 'none';?>">
-        <a class="nav-link" href="javascript:void(0)" onclick="window.open(location.origin+':8099')">
-          <i class="fas fa-shield-alt"></i>
-          <span>Bitwarden</span>
-        </a>
-      </li>
-      
       <li class="nav-item no-arrow mx-1">
         <a class="nav-link" href="/admin/" onclick="javascript:event.target.port=location.port" target="_blank">
           <i class="fab fa-raspberry-pi"></i>
@@ -122,16 +97,6 @@
         <a class="nav-link" href="forward.php">
           <i class="fas fa-project-diagram"></i>
           <span>中转</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="ddns.php">
-          <i class="fas fa-ethernet"></i>
-          <span>DDNS & Wireguard</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link" href="app.php">
-          <i class="fab fa-app-store-ios"></i>
-          <span>应用</span></a>
       </li>
       <li class="nav-item">
         <a class="nav-link" href="nodes.php">
@@ -172,7 +137,7 @@
         <h5 id="markThisLabel" class="modal-title">备注本机</h5>
       </div>
       <div class="modal-body">
-        <input id="markName" type="text" class="form-control" placeholder="备注名" required="required" value="<?php echo $de_GWDconf->address->alias ?>">
+        <input id="markName" type="text" class="form-control" placeholder="备注名" required="required" value="<?php echo gwd_h($de_GWDconf->address->alias) ?>">
       </div>
       <div class="modal-footer">
         <button id="buttonMarkThis" type="button" class="btn btn-outline-dark btn-sm">应用</button>
@@ -205,21 +170,21 @@
                 <div class="input-group-prepend">
                   <span class="input-group-text justify-content-center" style="min-width: 120px;">域名</span>
                 </div>
-                  <input id="CFdomain" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->domain ?>">
+                  <input id="CFdomain" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->domain) ?>">
               </div>
 
               <div class="col-md-5 input-group my-2">
                 <div class="input-group-prepend">
                   <span class="input-group-text justify-content-center" style="min-width: 120px;">CF API KEY</span>
                 </div>
-                  <input id="CFapikey" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->APIkey ?>">
+                  <input id="CFapikey" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->APIkey) ?>">
               </div>
 
               <div class="col-md-4 input-group my-2">
                 <div class="input-group-prepend">
                   <span class="input-group-text justify-content-center" style="min-width: 120px;">CF E-mail</span>
                 </div>
-                  <input id="CFemail" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->Email ?>">
+                  <input id="CFemail" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->Email) ?>">
               </div>
             </div>
           </div>
@@ -237,7 +202,7 @@
   <span id="buttonDoGsStopLoading"></span>
   <span>关闭</span>
 </button>
-<button id="buttonDoGsSave" type="button" class="btn <?php if ($DoGsConf !== false && $checkcoredns === active) echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
+<button id="buttonDoGsSave" type="button" class="btn <?php if ($DoGsConf !== false && $checkcoredns === 'active') echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
   <span id="buttonDoGsSaveLoading"></span>
   <span>应用</span>
 </button>
@@ -254,14 +219,14 @@
                 <div class="input-group-prepend">
                   <span class="input-group-text">端口</span>
                 </div>
-                  <input id="DoGsPort" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->DoGs->port ?>">
+                  <input id="DoGsPort" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->DoGs->port) ?>">
               </div>
 
               <div class="col-md-3 input-group my-2">
                 <div class="input-group-prepend">
                   <span class="input-group-text">地址</span>
                 </div>
-                <input type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->domain ?>:<?php echo $de_GWDconf->FORWARD->DoGs->port ?>" READONLY>
+                <input type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->domain) ?>:<?php echo gwd_h($de_GWDconf->FORWARD->DoGs->port) ?>" READONLY>
               </div>
             </div>
           </div>
@@ -277,7 +242,7 @@
   <span id="buttonBlock53offLoading"></span>
   <span>关闭</span>
 </button>
-<button id="buttonBlock53on" type="button" class="btn <?php if ($checkBlock53 === on) echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
+<button id="buttonBlock53on" type="button" class="btn <?php if ($checkBlock53 === 'on') echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
   <span id="buttonBlock53onLoading"></span>
   <span>不对外开放53端口</span>
 </button>
@@ -292,7 +257,7 @@
   <span id="buttonFWD0stopLoading"></span>
   <span>关闭</span>
 </button>
-<button id="buttonFWD0save" type="button" class="btn <?php if ($checkFWD0 === false && $checkVtrui === active) echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
+<button id="buttonFWD0save" type="button" class="btn <?php if ($checkFWD0 === false && $checkVtrui === 'active') echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
   <span id="buttonFWD0saveLoading"></span>
   <span>应用</span>
 </button>
@@ -310,7 +275,7 @@
                   <div class="input-group-prepend">
                     <span class="input-group-text">端口</span>
                   </div>
-                  <input id="FWD0port" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->FWD0->port ?>">
+                  <input id="FWD0port" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->FWD0->port) ?>">
                 </div>
               </div>
 
@@ -319,7 +284,7 @@
                   <div class="input-group-prepend">
                     <span class="input-group-text">地址</span>
                   </div>
-                  <input type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->domain ?>:<?php echo $de_GWDconf->FORWARD->FWD0->port ?>" READONLY>
+                  <input type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->domain) ?>:<?php echo gwd_h($de_GWDconf->FORWARD->FWD0->port) ?>" READONLY>
                 </div>
               </div>
 
@@ -327,8 +292,8 @@
 <?php 
 for( $i=0; $i<count($de_GWDconf->FORWARD->FWD0->uuid); $i++){
   $FWD0num = $i + 1;
-  $FWD0uuid = $de_GWDconf->FORWARD->FWD0->uuid[$i]->FWD0uuid;
-  $FWD0mark = $de_GWDconf->FORWARD->FWD0->uuid[$i]->FWD0mark;
+  $FWD0uuid = gwd_h($de_GWDconf->FORWARD->FWD0->uuid[$i]->FWD0uuid);
+  $FWD0mark = gwd_h($de_GWDconf->FORWARD->FWD0->uuid[$i]->FWD0mark);
 print <<<EOT
               <div>
                 <div id="FWD0UUIDline" class="input-group my-2">
@@ -380,7 +345,7 @@ EOT;
   <span id="buttonFWD1stopLoading"></span>
   <span>关闭</span>
 </button>
-<button id="buttonFWD1save" type="button" class="btn <?php if ($checkFWD1 === true && $checkVtrui1 === active) echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
+<button id="buttonFWD1save" type="button" class="btn <?php if ($checkFWD1 === true && $checkVtrui1 === 'active') echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
   <span id="buttonFWD1saveLoading"></span>
   <span>应用</span>
 </button>
@@ -398,7 +363,7 @@ EOT;
                   <div class="input-group-prepend">
                     <span class="input-group-text">端口</span>
                   </div>
-                  <input id="FWD1port" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->FWD1->port ?>">
+                  <input id="FWD1port" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->FWD1->port) ?>">
                 </div>
               </div>
 
@@ -407,17 +372,17 @@ EOT;
                   <div class="input-group-prepend">
                     <span class="input-group-text">地址</span>
                   </div>
-                  <input type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->domain ?>:<?php echo $de_GWDconf->FORWARD->FWD1->port ?>" READONLY>
+                  <input type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->domain) ?>:<?php echo gwd_h($de_GWDconf->FORWARD->FWD1->port) ?>" READONLY>
                 </div>
 
 <div class="btn-group">
   <label class="input-group-text">上级v2节点</label>
-  <button id="FWD1upstream" class="btn btn-outline-secondary dropdown-toggle" type="button" data-toggle="dropdown" value="<?php echo $checkFWD1OB[1] ?>"><?php echo $checkFWD1OB[0] ?></button>
+  <button id="FWD1upstream" class="btn btn-outline-secondary dropdown-toggle" type="button" data-toggle="dropdown" value="<?php echo gwd_h($checkFWD1OB[1]) ?>"><?php echo gwd_h($checkFWD1OB[0]) ?></button>
   <div id="FWD1upstreamDrop" class="dropdown-menu">
 <?php
 for( $i=0; $i<count($de_GWDconf->v2node); $i++){
-  $address = $de_GWDconf->v2node[$i]->domain;
-  $name = $de_GWDconf->v2node[$i]->name;
+  $address = gwd_h($de_GWDconf->v2node[$i]->domain);
+  $name = gwd_h($de_GWDconf->v2node[$i]->name);
 print <<<EOT
 <button class='dropdown-item' href='#' id='FWD1upstream$i' value="$address" onclick="buttonFWD1upstream(this)">$name</button>
 EOT;
@@ -431,8 +396,8 @@ EOT;
 <?php 
 for( $i=0; $i<count($de_GWDconf->FORWARD->FWD1->uuid); $i++){
   $FWD1num = $i + 1;
-  $FWD1uuid = $de_GWDconf->FORWARD->FWD1->uuid[$i]->FWD1uuid;
-  $FWD1mark = $de_GWDconf->FORWARD->FWD1->uuid[$i]->FWD1mark;
+  $FWD1uuid = gwd_h($de_GWDconf->FORWARD->FWD1->uuid[$i]->FWD1uuid);
+  $FWD1mark = gwd_h($de_GWDconf->FORWARD->FWD1->uuid[$i]->FWD1mark);
 print <<<EOT
               <div>
                 <div class="input-group my-2">
@@ -481,7 +446,7 @@ EOT;
   <span id="buttonRproxySstopLoading"></span>
   <span>关闭</span>
 </button>
-<button id="buttonRproxySsave" type="button" class="btn <?php if (empty($RproxySconf) === false && $checkRproxyS === active) echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
+<button id="buttonRproxySsave" type="button" class="btn <?php if (empty($RproxySconf) === false && $checkRproxyS === 'active') echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
   <span id="buttonRproxySsaveLoading"></span>
   <span>应用</span>
 </button>
@@ -497,43 +462,43 @@ EOT;
                 <div class="input-group-prepend">
                   <span class="input-group-text">端口</span>
                 </div>
-                  <input id="RproxyStunnelPort" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->Rproxy->server->tunnel->port ?>">
+                  <input id="RproxyStunnelPort" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->Rproxy->server->tunnel->port) ?>">
               </div>
 
               <div class="col-md-3 input-group my-2">
                 <div class="input-group-prepend">
                   <span class="input-group-text">对接地址</span>
                 </div>
-                <input type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->domain ?>:<?php echo $de_GWDconf->FORWARD->Rproxy->server->tunnel->port ?>" READONLY>
+                <input type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->domain) ?>:<?php echo gwd_h($de_GWDconf->FORWARD->Rproxy->server->tunnel->port) ?>" READONLY>
               </div>
 
               <div class="col-md-7 input-group my-2">
                 <div class="input-group-prepend">
                   <span class="input-group-text">UUID</span>
                 </div>
-                  <input id="RproxyStunnelUUID" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->Rproxy->server->tunnel->uuid ?>">
+                  <input id="RproxyStunnelUUID" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->Rproxy->server->tunnel->uuid) ?>">
                 </div>
             </div>
 
             <div class="card mb-3 mt-2">
               <div class="card-header">
                 代理型
-<span id="RproxyS0Button" class="float-right mt-n1 mb-n2" style="display:<?php if ($de_GWDconf->FORWARD->Rproxy->server->inStatus === on) echo 'block'; else echo 'none';?>">
+<span id="RproxyS0Button" class="float-right mt-n1 mb-n2" style="display:<?php if ($de_GWDconf->FORWARD->Rproxy->server->inStatus === 'on') echo 'block'; else echo 'none';?>">
 <button id="buttonRproxyS0Add" type="button" class="btn btn-secondary btn-sm mt-1" style="border-Radius: 0px;">添加 UUID</button>
 <button id="buttonRproxyS0Stop" type="button" class="btn btn-outline-secondary btn-sm mt-1" style="border-Radius: 0px;">关闭</button>
 </span>
-<span id="RproxyS0Switch" class="float-right mt-n1 mb-n2" style="display:<?php if ($de_GWDconf->FORWARD->Rproxy->server->inStatus === on) echo 'none'; else echo 'block';?>">
+<span id="RproxyS0Switch" class="float-right mt-n1 mb-n2" style="display:<?php if ($de_GWDconf->FORWARD->Rproxy->server->inStatus === 'on') echo 'none'; else echo 'block';?>">
 <button type="button" class="btn btn-secondary btn-sm mt-1" style="border-Radius: 0px;" onclick="RproxyS0Switch()">展开</button>
 </span>
               </div>
-              <div id="RproxyS0Body" class="card-body" style="display:<?php if ($de_GWDconf->FORWARD->Rproxy->server->inStatus === on) echo 'block'; else echo 'none';?>">
+              <div id="RproxyS0Body" class="card-body" style="display:<?php if ($de_GWDconf->FORWARD->Rproxy->server->inStatus === 'on') echo 'block'; else echo 'none';?>">
                 <div class="form-row">
                   <div class="col-md-3">
                   <div class="input-group my-2">
                     <div class="input-group-prepend">
                       <span class="input-group-text">连入地址</span>
                     </div>
-                    <input type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->domain ?>:<?php echo $de_GWDconf->FORWARD->Rproxy->server->tunnel->port ?>" READONLY>
+                    <input type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->domain) ?>:<?php echo gwd_h($de_GWDconf->FORWARD->Rproxy->server->tunnel->port) ?>" READONLY>
                   </div>
                   </div>
 
@@ -541,8 +506,8 @@ EOT;
 <?php 
 for( $i=0; $i<count($de_GWDconf->FORWARD->Rproxy->server->inUUID); $i++){
   $RproxyS0num = $i + 1;
-  $RproxyS0uuid = $de_GWDconf->FORWARD->Rproxy->server->inUUID[$i]->RproxyS0uuid;
-  $RproxyS0mark = $de_GWDconf->FORWARD->Rproxy->server->inUUID[$i]->RproxyS0mark;
+  $RproxyS0uuid = gwd_h($de_GWDconf->FORWARD->Rproxy->server->inUUID[$i]->RproxyS0uuid);
+  $RproxyS0mark = gwd_h($de_GWDconf->FORWARD->Rproxy->server->inUUID[$i]->RproxyS0mark);
 print <<<EOT
                   <div>
                     <div class="input-group my-2">
@@ -596,8 +561,8 @@ EOT;
                 <div id="RproxyS1List" class="form-row">
 <?php 
 for( $i=0; $i<count($de_GWDconf->FORWARD->Rproxy->server->mapping); $i++){
-  $RproxyS1Port = $de_GWDconf->FORWARD->Rproxy->server->mapping[$i]->port;
-  $RproxyS1Protocol = $de_GWDconf->FORWARD->Rproxy->server->mapping[$i]->protocol;
+  $RproxyS1Port = gwd_h($de_GWDconf->FORWARD->Rproxy->server->mapping[$i]->port);
+  $RproxyS1Protocol = gwd_h($de_GWDconf->FORWARD->Rproxy->server->mapping[$i]->protocol);
 print <<<EOT
 <div class="col-md-4 input-group my-2">
   <div class="input-group-prepend">
@@ -635,7 +600,7 @@ EOT;
   <span id="buttonRproxyCstopLoading"></span>
   <span>关闭</span>
 </button>
-<button id="buttonRproxyCsave" type="button" class="btn <?php if (empty($RproxyCconf) === false && $checkRproxyC === active) echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
+<button id="buttonRproxyCsave" type="button" class="btn <?php if (empty($RproxyCconf) === false && $checkRproxyC === 'active') echo 'btn-success'; else echo 'btn-outline-secondary';?> btn-sm mt-1" style="border-Radius: 0px;">
   <span id="buttonRproxyCsaveLoading"></span>
   <span>应用</span>
 </button>
@@ -651,14 +616,14 @@ EOT;
                 <div class="input-group-prepend">
                   <span class="input-group-text">对接地址</span>
                 </div>
-                  <input id="RproxyCtunnelAddress" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->Rproxy->client->tunnel->address ?>">
+                  <input id="RproxyCtunnelAddress" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->Rproxy->client->tunnel->address) ?>">
               </div>
 
               <div class="col-md-7 input-group my-2">
                 <div class="input-group-prepend">
                   <span class="input-group-text">UUID</span>
                 </div>
-                  <input id="RproxyCtunnelUUID" type="text" class="form-control" value="<?php echo $de_GWDconf->FORWARD->Rproxy->client->tunnel->uuid ?>">
+                  <input id="RproxyCtunnelUUID" type="text" class="form-control" value="<?php echo gwd_h($de_GWDconf->FORWARD->Rproxy->client->tunnel->uuid) ?>">
                 </div>
             </div>
 
@@ -699,10 +664,10 @@ EOT;
                 <div id="RproxyC1List" class="form-row">
 <?php 
 for( $i=0; $i<count($de_GWDconf->FORWARD->Rproxy->client->mapping); $i++){
-  $RproxyC1extPort = $de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->extPort;
-  $RproxyC1extProtocol = $de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->extProtocol;
-  $RproxyC1intIP = $de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->intIP;
-  $RproxyC1intPort = $de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->intPort;
+  $RproxyC1extPort = gwd_h($de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->extPort);
+  $RproxyC1extProtocol = gwd_h($de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->extProtocol);
+  $RproxyC1intIP = gwd_h($de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->intIP);
+  $RproxyC1intPort = gwd_h($de_GWDconf->FORWARD->Rproxy->client->mapping[$i]->intPort);
 print <<<EOT
 <div class="col-md-6 input-group my-2">
   <div class="input-group-prepend">
@@ -780,7 +745,7 @@ function FWD0qr(FWD0qr){
 var FWD0obj = $(FWD0qr).parent().parent().parent().parent().find('.input-group')
 var FWD0objLine = $(FWD0qr).parent().parent().parent().find('div')
 var FWD0index = FWD0obj.index(FWD0objLine)+1
-$.get('./act/FWD0qr.php', {FWD0index:FWD0index}, function(data){
+$.post('./act/FWD0qr.php', {FWD0index:FWD0index}, function(data){
 $('#FWD0qrcode'+FWD0index).empty()
 $('#FWD0qrpop'+FWD0index).modal('show')
 $('#FWD0qrcode'+FWD0index).qrcode({width: 240,height: 240,correctLevel:0,text:data})
@@ -797,7 +762,7 @@ function FWD1qr(FWD1qr){
 var FWD1obj = $(FWD1qr).parent().parent().parent().parent().find('.input-group')
 var FWD1objLine = $(FWD1qr).parent().parent().parent().find('div')
 var FWD1index = FWD1obj.index(FWD1objLine)+1
-$.get('./act/FWD1qr.php', {FWD1index:FWD1index}, function(data){
+$.post('./act/FWD1qr.php', {FWD1index:FWD1index}, function(data){
 $('#FWD1qrcode'+FWD1index).empty()
 $('#FWD1qrpop'+FWD1index).modal('show')
 $('#FWD1qrcode'+FWD1index).qrcode({width: 240,height: 240,correctLevel:0,text:data})
@@ -808,8 +773,8 @@ function buttonFWD1upstream(buttonFWD1upstream){
 var FWD1upstreamobj = $(buttonFWD1upstream).parent().find('button')
 var FWD1upstreamindex = FWD1upstreamobj.index($(buttonFWD1upstream))
 var FWD1upstreamAddress = $('#FWD1upstream'+FWD1upstreamindex).val()
-var FWD1upstreamName = $('#FWD1upstream'+FWD1upstreamindex).html()
-$('#FWD1upstream').html(FWD1upstreamName)
+var FWD1upstreamName = $('#FWD1upstream'+FWD1upstreamindex).text()
+$('#FWD1upstream').text(FWD1upstreamName)
 $('#FWD1upstream').val(FWD1upstreamAddress)
 }
 
@@ -829,7 +794,7 @@ function RproxyS0qr(RproxyS0qr){
 var RproxyS0obj = $(RproxyS0qr).parent().parent().parent().parent().find('.input-group')
 var RproxyS0objLine = $(RproxyS0qr).parent().parent().parent().find('div')
 var RproxyS0index = RproxyS0obj.index(RproxyS0objLine)+1
-$.get('./act/RproxyS0qr.php', {RproxyS0index:RproxyS0index}, function(data){
+$.post('./act/RproxyS0qr.php', {RproxyS0index:RproxyS0index}, function(data){
 $('#RproxyS0qrcode'+RproxyS0index).empty()
 $('#RproxyS0qrpop'+RproxyS0index).modal('show')
 $('#RproxyS0qrcode'+RproxyS0index).qrcode({width: 240,height: 240,correctLevel:0,text:data})
@@ -855,27 +820,27 @@ $('#RproxyC1Body').css('display', 'block');
 }
 
 function RproxyS1TCP(RproxyS1TCP){
-$(RproxyS1TCP).parent().parent().find('.dropdown-toggle').html("tcp")
+$(RproxyS1TCP).parent().parent().find('.dropdown-toggle').text("tcp")
 }
 
 function RproxyS1UDP(RproxyS1UDP){
-$(RproxyS1UDP).parent().parent().find('.dropdown-toggle').html("udp")
+$(RproxyS1UDP).parent().parent().find('.dropdown-toggle').text("udp")
 }
 
 function RproxyS1TCPUDP(RproxyS1TCPUDP){
-$(RproxyS1TCPUDP).parent().parent().find('.dropdown-toggle').html("tcp,udp")
+$(RproxyS1TCPUDP).parent().parent().find('.dropdown-toggle').text("tcp,udp")
 }
 
 function RproxyC1TCP(RproxyC1TCP){
-$(RproxyC1TCP).parent().parent().find('.dropdown-toggle').html("tcp")
+$(RproxyC1TCP).parent().parent().find('.dropdown-toggle').text("tcp")
 }
 
 function RproxyC1UDP(RproxyC1UDP){
-$(RproxyC1UDP).parent().parent().find('.dropdown-toggle').html("udp")
+$(RproxyC1UDP).parent().parent().find('.dropdown-toggle').text("udp")
 }
 
 function RproxyC1TCPUDP(RproxyC1TCPUDP){
-$(RproxyC1TCPUDP).parent().parent().find('.dropdown-toggle').html("tcp,udp")
+$(RproxyC1TCPUDP).parent().parent().find('.dropdown-toggle').text("tcp,udp")
 }
 
 function mappingServerDel(mappingServerDel){
@@ -894,40 +859,40 @@ $('#RproxyCbody').css('display', 'block');
 
 $(function(){
 $('#buttonLogout').click(function(){
-$.get('auth.php', {logout:'true'}, function(result){window.location.href="index.php"})
+$.post('auth.php', {logout:'true'}, function(result){window.location.href="index.php"})
 })
 
 $('#buttonMarkThis').click(function(){
 markNametxt=$('#markName').val()
-$.get('./act/markThis.php', {markName:markNametxt}, function(result){window.location.reload()})
+$.post('./act/markThis.php', {markName:markNametxt}, function(result){window.location.reload()})
 })
 
 $('#buttonGenCER').click(function(){
 cfdomain=$('#CFdomain').val()
 cfapikey=$('#CFapikey').val().trim()
 cfemail=$('#CFemail').val()
-$.get('./act/genCER.php', {CFdomain:cfdomain, CFapikey:cfapikey, CFemail:cfemail}, function(){})
+$.post('./act/genCER.php', {CFdomain:cfdomain, CFapikey:cfapikey, CFemail:cfemail}, function(){})
 var win = window.open('/ttyd', 'popupWindow', 'width=900, height=900, scrollbars=yes')
 var timer = setInterval(function() { 
     if(win.closed) {
         clearInterval(timer);
-        $.get('./act/installZ.php', function(result){window.location.reload()})
+        $.post('./act/installZ.php', function(result){window.location.reload()})
     }
 }, 300);
 })
 
 $('#buttonCheckCER').click(function(){
 $("#buttonCheckCERloading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/checkCER.php', function(data){
+$.post('./act/checkCER.php', function(data){
   $("#buttonCheckCERloading").removeClass()
-  $("#buttonCheckCERtxt").html(data)
+  $("#buttonCheckCERtxt").text(data)
 })
 })
 
 $('#buttonDoGsSave').click(function(){
 $("#buttonDoGsSaveLoading").attr("class", "spinner-border spinner-border-sm")
 DoGsPort=$('#DoGsPort').val().trim()
-$.get('./act/DoGsSave.php', {DoGsPort:DoGsPort}, function(result){
+$.post('./act/DoGsSave.php', {DoGsPort:DoGsPort}, function(result){
   $("#buttonDoGsSaveLoading").removeClass()
   window.location.reload()
 
@@ -936,7 +901,7 @@ $.get('./act/DoGsSave.php', {DoGsPort:DoGsPort}, function(result){
 
 $('#buttonDoGsStop').click(function(){
 $("#buttonDoGsStopLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/DoGsStop.php', function(result){
+$.post('./act/DoGsStop.php', function(result){
   $("#buttonDoGsStopLoading").removeClass()
   $("#buttonDoGsSave").attr('class','btn btn-outline-secondary btn-sm mt-1')
   $('#DoGsSwitch').css('display', 'block');
@@ -947,7 +912,7 @@ $.get('./act/DoGsStop.php', function(result){
 
 $('#buttonBlock53on').click(function(){
 $("#buttonBlock53onLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/block53on.php', function(result){
+$.post('./act/block53on.php', function(result){
   $("#buttonBlock53onLoading").removeClass()
   $("#buttonBlock53on").attr('class','btn btn-success btn-sm mt-1')
 })
@@ -955,7 +920,7 @@ $.get('./act/block53on.php', function(result){
 
 $('#buttonBlock53off').click(function(){
 $("#buttonBlock53offLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/block53off.php', function(result){
+$.post('./act/block53off.php', function(result){
   $("#buttonBlock53offLoading").removeClass()
   $("#buttonBlock53on").attr('class','btn btn-outline-secondary btn-sm mt-1')
 })
@@ -993,7 +958,7 @@ for( let i = 1; i<=len; i++){
     FWD0uuidList.push({FWD0uuid, FWD0mark})
     }
 }
-$.get('./act/FWD0save.php', {FWD0port:FWD0port, FWD0uuidList:FWD0uuidList}, function(result){
+$.post('./act/FWD0save.php', {FWD0port:FWD0port, FWD0uuidList:FWD0uuidList}, function(result){
   $("#buttonFWD0saveLoading").removeClass()
 window.location.reload()
 })
@@ -1001,7 +966,7 @@ window.location.reload()
 
 $('#buttonFWD0stop').click(function(){
 $("#buttonFWD0stopLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/FWD0stop.php', function(result){
+$.post('./act/FWD0stop.php', function(result){
   $("#buttonFWD0stopLoading").removeClass()
   $("#buttonFWD0save").attr('class','btn btn-outline-secondary btn-sm mt-1')
   $('#FWD0switch').css('display', 'block');
@@ -1043,7 +1008,7 @@ for( let i = 1; i<=len; i++){
     FWD1uuidList.push({FWD1uuid, FWD1mark})
     }
 }
-$.get('./act/FWD1save.php', {FWD1upstream:FWD1upstream, FWD1port:FWD1port, FWD1uuidList:FWD1uuidList}, function(result){
+$.post('./act/FWD1save.php', {FWD1upstream:FWD1upstream, FWD1port:FWD1port, FWD1uuidList:FWD1uuidList}, function(result){
   $("#buttonFWD1saveLoading").removeClass()
 window.location.reload()
 })
@@ -1051,7 +1016,7 @@ window.location.reload()
 
 $('#buttonFWD1stop').click(function(){
 $("#buttonFWD1stopLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/FWD1stop.php', function(result){
+$.post('./act/FWD1stop.php', function(result){
   $("#buttonFWD1stopLoading").removeClass()
   $("#buttonFWD1save").attr('class','btn btn-outline-secondary btn-sm mt-1')
   $('#FWD1switch').css('display', 'block');
@@ -1081,12 +1046,12 @@ var len = $("#RproxyS1List .input-group").length
 var RproxyS1Port, RproxyS1Protocol
 for( let i = 0; i<len; i++){
     var port = $('#RproxyS1Port'+i).val().trim()
-    var protocol = $('#RproxyS1Protocol'+i).html()
+    var protocol = $('#RproxyS1Protocol'+i).text()
     if ( port !== '' && protocol !== '') {
     RproxyS1List.push({port, protocol})
     }
 }
-$.get('./act/RproxySsave.php', {RproxyStunnelPort:RproxyStunnelPort, RproxyStunnelUUID:RproxyStunnelUUID, RproxyS0uuidList:RproxyS0uuidList, RproxySinStatus:RproxySinStatus, RproxySmappingStatus:RproxySmappingStatus, RproxyS1List:RproxyS1List}, function(result){
+$.post('./act/RproxySsave.php', {RproxyStunnelPort:RproxyStunnelPort, RproxyStunnelUUID:RproxyStunnelUUID, RproxyS0uuidList:RproxyS0uuidList, RproxySinStatus:RproxySinStatus, RproxySmappingStatus:RproxySmappingStatus, RproxyS1List:RproxyS1List}, function(result){
   $("#buttonRproxySsaveLoading").removeClass()
   window.location.reload()
 })
@@ -1094,7 +1059,7 @@ $.get('./act/RproxySsave.php', {RproxyStunnelPort:RproxyStunnelPort, RproxyStunn
 
 $('#buttonRproxySstop').click(function(){
 $("#buttonRproxySstopLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/RproxySstop.php', function(result){
+$.post('./act/RproxySstop.php', function(result){
   $("#buttonRproxySstopLoading").removeClass()
   $("#buttonRproxySsave").attr('class','btn btn-outline-secondary btn-sm mt-1')
   $('#RproxySswitch').css('display', 'block'); 
@@ -1201,14 +1166,14 @@ var len = $("#RproxyC1List .input-group").length
 var RproxyC1extPort, RproxyC1extProtocol, RproxyC1intIP, RproxyC1intPort
 for( let i = 0; i<len; i++){
     var extPort = $('#RproxyC1extPort'+i).val().trim()
-    var extProtocol = $('#RproxyC1extProtocol'+i).html()
+    var extProtocol = $('#RproxyC1extProtocol'+i).text()
     var intIP = $('#RproxyC1intIP'+i).val().trim()
     var intPort = $('#RproxyC1intPort'+i).val().trim()
     if ( extPort !== '' && extProtocol !== '' && intIP !== '' && intPort !== '') {
     RproxyC1List.push({extPort, extProtocol, intIP, intPort})
     }
 }
-$.get('./act/RproxyCsave.php', {RproxyCtunnelAddress:RproxyCtunnelAddress, RproxyCtunnelUUID:RproxyCtunnelUUID, RproxyCoutStatus:RproxyCoutStatus, RproxyCmappingStatus:RproxyCmappingStatus, RproxyC1List:RproxyC1List}, function(result){
+$.post('./act/RproxyCsave.php', {RproxyCtunnelAddress:RproxyCtunnelAddress, RproxyCtunnelUUID:RproxyCtunnelUUID, RproxyCoutStatus:RproxyCoutStatus, RproxyCmappingStatus:RproxyCmappingStatus, RproxyC1List:RproxyC1List}, function(result){
   $("#buttonRproxyCsaveLoading").removeClass()
   window.location.reload()
 })
@@ -1216,7 +1181,7 @@ $.get('./act/RproxyCsave.php', {RproxyCtunnelAddress:RproxyCtunnelAddress, Rprox
 
 $('#buttonRproxyCstop').click(function(){
 $("#buttonRproxyCstopLoading").attr("class", "spinner-border spinner-border-sm")
-$.get('./act/RproxyCstop.php', function(result){
+$.post('./act/RproxyCstop.php', function(result){
   $("#buttonRproxyCstopLoading").removeClass()
   $("#buttonRproxyCsave").attr('class','btn btn-outline-secondary btn-sm mt-1')
   $('#RproxyCswitch').css('display', 'block'); 

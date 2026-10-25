@@ -1,14 +1,14 @@
 <?php require_once('../auth.php'); ?>
 <?php if (isset($auth) && $auth) {?>
 <?php
-$switchNodeDT = $_GET['switchNodeDT'];
+$switchNodeDT = gwd_string('switchNodeDT');
 if ($switchNodeDT == "NodeDTshow"){
-    exec('sudo /opt/de_GWD/ui-NodeDT r &');
+    gwd_command('ui-NodeDT', [], true);
 }
 elseif ($switchNodeDT == "NodeDThide"){
-    exec('sudo /opt/de_GWD/ui-NodeDThide r &');
+    gwd_command('ui-NodeDThide', [], true);
 }
 
-passthru('/opt/de_GWD/ui-NodeDTcheck &');
+echo gwd_command('ui-NodeDTcheck');
 ?>
 <?php }?>

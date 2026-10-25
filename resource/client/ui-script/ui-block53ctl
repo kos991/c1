@@ -1,0 +1,34 @@
+#!/bin/bash
+source /opt/de_GWD/ui-route-lib
+[[ $# -eq 1 && ( $1 == on || $1 == off ) ]] || exit 1
+file=/opt/de_GWD/nftables/block53.nft
+mkdir -p /opt/de_GWD/nftables
+temporary=$(mktemp /opt/de_GWD/nftables/.block53.XXXXXXXX)
+trap 'rm -f -- "$temporary"' EXIT
+cat >"$temporary" <<'EOF'
+table inet de_GWD_dns_guard {
+    chain input {
+        type filter hook input priority -10; policy accept;
+EOF
+if [[ $1 == on ]]; then
+    cat >>"$temporary" <<'EOF'
+        ct state established,related return
+        iifname { "lo", "wg0", "wgcf", "docker0", "ifb4lo", "ifb4wgcf" } return
+        meta l4proto { tcp, udp } th dport 53 drop
+EOF
+fi
+cat >>"$temporary" <<'EOF'
+    }
+}
+EOF
+# Apply as one nftables transaction. Deleting this script's table alone never
+# flushes another chain, set, or service's firewall state.
+apply=$(mktemp /opt/de_GWD/nftables/.block53.apply.XXXXXXXX)
+trap 'rm -f -- "$temporary" "$apply"' EXIT
+if nft list table inet de_GWD_dns_guard >/dev/null 2>&1; then
+    printf 'delete table inet de_GWD_dns_guard\n' >"$apply"
+fi
+cat "$temporary" >>"$apply"
+nft -f "$apply"
+chmod 0644 "$temporary"
+mv -f -- "$temporary" "$file"

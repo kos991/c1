@@ -1,17 +1,5 @@
 #!/bin/bash
-if [[ -n $1 ]] && [[ -n $2 ]]; then
-tag=$1
-IP=$2
-
-RoutingADD=`cat << EOF
-{
-        "type": "field",
-        "source": $IP,
-        "network": "tcp,udp",
-        "outboundTag": "$tag"
-}
-EOF
-`
-
-jq --argjson RoutingADD "$RoutingADD" '.routing.rules+=[$RoutingADD]' /opt/de_GWD/vtrui/config.json  | sponge /opt/de_GWD/vtrui/config.json
-fi
+source /opt/de_GWD/ui-node-lib
+set -euo pipefail
+[[ $# -ge 2 ]] || exit 1
+node_rule "$1" source "$2"

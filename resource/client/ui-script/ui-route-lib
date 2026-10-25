@@ -1,0 +1,50 @@
+#!/bin/bash
+# Source only from the fixed, root-owned routing entrypoints.
+set -euo pipefail
+umask 077
+exec 9>/opt/de_GWD/.routing.lock
+flock -x 9
+
+route_config() {
+    /usr/bin/python3 /opt/de_GWD/ui-route-config "$@"
+}
+
+route_service() {
+    local service=$1 description=$2
+    local directory="/opt/de_GWD/$service" binary
+    binary=$(mktemp "$directory/.core.XXXXXXXX")
+    if ! install -m 0700 /opt/de_GWD/vtrui/vtrui "$binary"; then
+        rm -f -- "$binary"
+        return 1
+    fi
+    mv -f -- "$binary" "$directory/$service"
+    if [[ $service == RproxyC || $service == RproxyS ]]; then
+        chown root:www-data "$directory"
+        chmod 0750 "$directory"
+    else
+        chmod 0750 "$directory"
+    fi
+    cat >"/etc/systemd/system/$service.service" <<EOF
+[Unit]
+Description=$description
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+Type=simple
+ExecStart=$directory/$service run -config $directory/config.json
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+UMask=0077
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    chmod 0644 "/etc/systemd/system/$service.service"
+    systemctl daemon-reload
+    systemctl enable "$service" >/dev/null
+    systemctl restart "$service"
+}

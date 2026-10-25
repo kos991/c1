@@ -1,6 +1,6 @@
 #!/bin/bash
+source /opt/de_GWD/ui-route-lib
 systemctl disable --now RproxyC >/dev/null
-rm -rf /lib/systemd/system/RproxyC.service
 rm -rf /etc/systemd/system/RproxyC.service
 rm -rf /opt/de_GWD/RproxyC
 systemctl daemon-reload >/dev/null

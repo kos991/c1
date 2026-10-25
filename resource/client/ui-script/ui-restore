@@ -1,40 +1,29 @@
 #!/bin/bash
-if [[ $(du -sk /var/www/html/restore/de_GWD_bak 2>/dev/null | awk '{print$1}') -gt 1 ]]; then
-mv -f /var/www/html/restore/de_GWD_bak /opt/de_GWD/0conf
+set -euo pipefail
 
-if [[ -n $(jq -r '.address.alias' /opt/de_GWD/0conf 2>/dev/null | grep -v '^null$') ]]; then
- 	/opt/de_GWD/ui-markThis
-fi
+# Restore de_GWD config from act-staged backup file
+[[ -f /var/lib/de_GWD/restore/de_GWD_bak ]] || exit 1
 
+# Validate file is regular and owned by www-data (post-act staging)
+[[ -O /var/lib/de_GWD/restore/de_GWD_bak && ! -L /var/lib/de_GWD/restore/de_GWD_bak ]] || exit 1
+
+# Restore config and re-apply dependent service configs
+cp -p /var/lib/de_GWD/restore/de_GWD_bak /opt/de_GWD/0conf
+chown root:www-data /opt/de_GWD/0conf
+chmod 0660 /opt/de_GWD/0conf
+
+# Re-sync derived configs from 0conf
+[[ -n $(jq -r '.address.alias' /opt/de_GWD/0conf 2>/dev/null | grep -v '^null$') ]] && /opt/de_GWD/ui-markThis
 /opt/de_GWD/ui-NodeOne
+[[ $(jq -r '.v2nodeDIV.nodeSM.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]] && /opt/de_GWD/ui-NodeSM >/dev/null 2>&1 || true
+[[ $(jq -r '.v2nodeDIV.nodeCU.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]] && /opt/de_GWD/ui-NodeCU >/dev/null 2>&1 || true
+[[ $(jq -r '.v2nodeDIV.nodeDT.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]] && /opt/de_GWD/ui-NodeDT >/dev/null 2>&1 || true
+[[ $(jq -r '.FORWARD.FWD1.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]] && /opt/de_GWD/ui-FWD1save >/dev/null 2>&1 || true
+[[ $(jq -r '.FORWARD.Rproxy.client.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]] && /opt/de_GWD/ui-RproxyCsave >/dev/null 2>&1 || true
+[[ $(jq -r '.FORWARD.Rproxy.server.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]] && /opt/de_GWD/ui-RproxySsave >/dev/null 2>&1 || true
 
-if [[ $(jq -r '.v2nodeDIV.nodeSM.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]]; then
-  /opt/de_GWD/ui-NodeSM >/dev/null 2>&1
-fi
-
-if [[ $(jq -r '.v2nodeDIV.nodeCU.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]]; then
-  /opt/de_GWD/ui-NodeCU >/dev/null 2>&1
-fi
-
-if [[ $(jq -r '.v2nodeDIV.nodeDT.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]]; then
-  /opt/de_GWD/ui-NodeDT >/dev/null 2>&1
-fi
-
-if [[ $(jq -r '.FORWARD.FWD1.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]];then
-  /opt/de_GWD/ui-FWD1save >/dev/null 2>&1
-fi
-
-if [[ $(jq -r '.FORWARD.Rproxy.client.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]];then
-  /opt/de_GWD/ui-RproxyCsave >/dev/null 2>&1
-fi
-
-if [[ $(jq -r '.FORWARD.Rproxy.server.status' /opt/de_GWD/0conf 2>/dev/null) = "on" ]];then
-  /opt/de_GWD/ui-RproxySsave >/dev/null 2>&1
-fi
-
+# Restart dependent services
 /opt/de_GWD/ui_4h
-
-systemctl restart nftables
-systemctl restart mosdns
-systemctl restart vtrui
-fi
+systemctl restart nftables 2>/dev/null || true
+systemctl restart mosdns 2>/dev/null || true
+systemctl restart vtrui 2>/dev/null || true

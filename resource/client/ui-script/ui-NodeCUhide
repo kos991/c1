@@ -1,8 +1,6 @@
 #!/bin/bash
-jq 'del(.outbounds[] | select(.tag == "custom"))' /opt/de_GWD/vtrui/config.json |\
-jq 'del(.routing.rules[] | select(.outboundTag == "custom"))' | sponge /opt/de_GWD/vtrui/config.json
-
-jq '.v2nodeDIV.nodeCU.status="off"' /opt/de_GWD/0conf | sponge /opt/de_GWD/0conf
-chmod 666 /opt/de_GWD/0conf
-
-[[ $1 = "r" ]] && systemctl restart vtrui >/dev/null
+source /opt/de_GWD/ui-node-lib
+set -euo pipefail
+node_remove custom
+node_update "$NODE_CONF" '.v2nodeDIV.nodeCU.status="off"'
+[[ ${1:-} == r ]] && systemctl restart vtrui >/dev/null || true

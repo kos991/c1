@@ -1,0 +1,140 @@
+#!/usr/bin/env php
+<?php
+// The only sudo target for the web application. No caller-provided program, flags or paths.
+function reject(): never { fwrite(STDERR, "Invalid administrative action\n"); exit(2); }
+function unsigned(string $value, int $min = 0, int $max = 2147483647): string {
+    if (!preg_match('/^(0|[1-9][0-9]*)$/D', $value) || strlen($value) > 10 ||
+        (int)$value < $min || (int)$value > $max) reject();
+    return $value;
+}
+function no_args(array $args): void { if ($args !== []) reject(); }
+function authorized_service(string $name): string {
+    if (!in_array($name, ['coredns', 'vtrui', 'vtrui1', 'RproxyS', 'RproxyC'], true)) reject();
+    return $name;
+}
+$argv = array_slice($argv, 1);
+$background = ($argv[0] ?? '') === '--background';
+if ($background) array_shift($argv);
+$action = array_shift($argv);
+if (!is_string($action)) reject();
+// Actions never pass a raw shell string to a privileged process.
+$static = [
+    'ui-checkEditionARM', 'ui-hostsCustomize', 'ui-checkNodeSS', 'ui-checkNode',
+    'ui-checkFWD1', 'ui-check_ssl', 'ui-NodeSMcheck', 'ui-NodeDTcheck',
+    'ui-NodeCUcheck', 'ui-pingTCPDoG', 'ui-pingTCPDOH1', 'ui-pingTCPDOH2',
+    'ui-changeNodeSS0', 'ui-block53on', 'ui-block53off', 'ui-DoGsSave',
+    'ui-DoGsStop', 'ui-FWD0stop', 'ui-FWD1save', 'ui-FWD1stop',
+    'ui-RproxyCsave', 'ui-RproxyCstop', 'ui-RproxySsave', 'ui-RproxySstop',
+    'ui-proxyStop', 'ui-proxyRestart', 'ui-reboot', 'ui-installZ',
+    'ui-markThis', 'ui-FWD0save', 'ui-NodeOne', 'ui-NodeSave',
+    'ui-NodeCU', 'ui-NodeCUhide', 'ui-NodeDT', 'ui-NodeDThide',
+    'ui-changeNodeSS', 'ui_4h',
+];
+$fixedArgs = [
+    'ui-FWD0save' => ['r'], 'ui-NodeOne' => ['f', 'r'],
+    'ui-NodeSave' => ['r'], 'ui-NodeCU' => ['r'],
+    'ui-NodeCUhide' => ['r'], 'ui-NodeDT' => ['r'],
+    'ui-NodeDThide' => ['r'], 'ui-changeNodeSS' => ['r'],
+    'ui_4h' => ['r', 'n'],
+];
+if (in_array($action, $static, true)) {
+    no_args($argv);
+    $command = ['/opt/de_GWD/' . $action, ...($fixedArgs[$action] ?? [])];
+} else {
+    switch ($action) {
+        case 'kernelVersion': no_args($argv); $command = ['/usr/bin/uname', '-r']; break;
+        case 'serviceStatus':
+            if (count($argv) !== 1) reject();
+            $service = authorized_service($argv[0]);
+            $proc = proc_open(['/usr/bin/systemctl', 'is-active', $service],
+                [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $pipes);
+            if (!is_resource($proc)) reject();
+            echo stream_get_contents($pipes[1]);
+            fclose($pipes[1]);
+            proc_close($proc);
+            exit(0);
+        case 'updateRun': no_args($argv); $command = ['/usr/bin/systemctl', 'start', 'updateGWD']; break;
+        case 'updateDownload': no_args($argv); $command = ['/opt/de_GWD/ui-download-update-trusted']; break;
+        case 'ui-NodeChange':
+        case 'ui-pingTCP':
+        case 'ui-speedT':
+            if (count($argv) !== 1) reject();
+            $index = unsigned($argv[0]);
+            $config = json_decode(file_get_contents('/opt/de_GWD/0conf'), true);
+            $list = $config['v2node'] ?? [];
+            if (!is_array($list) || !array_key_exists((int)$index, $list)) reject();
+            $command = ['/opt/de_GWD/' . $action, $index]; break;
+        case 'ui-NodeCUchange':
+        case 'ui-NodeDTchange':
+            if (count($argv) !== 1) reject();
+            $index = unsigned($argv[0]);
+            $config = json_decode(file_get_contents('/opt/de_GWD/0conf'), true);
+            if (!isset($config['v2node'][(int)$index])) reject();
+            $command = ['/opt/de_GWD/' . ($action === 'ui-NodeCUchange' ? 'ui-NodeCU' : 'ui-NodeDT'), 'r', $index]; break;
+        case 'ui-NodeSMrules':
+            if (count($argv) !== 8) reject();
+            $config = json_decode(file_get_contents('/opt/de_GWD/0conf'), true);
+            $nodes = $config['v2node'] ?? [];
+            if (!is_array($nodes)) reject();
+            foreach ($argv as $choice) {
+                $index = (int)unsigned($choice);
+                if ($index !== 0 && !array_key_exists($index - 1, $nodes)) reject();
+            }
+            $command = ['/opt/de_GWD/ui-NodeSM', 'r', ...$argv]; break;
+        case 'ui-autoUpdateHour':
+            if (count($argv) !== 1 || ($argv[0] !== 'off' && !preg_match('/^(?:[0-9]|1[0-9]|2[0-3])$/D', $argv[0]))) reject();
+            $command = ['/opt/de_GWD/ui-autoUpdateHour', $argv[0]]; break;
+        case 'backup':
+            if (count($argv) !== 1 || $argv[0] !== 'de_GWD') reject();
+            $command = ['/opt/de_GWD/ui-backup', $argv[0]]; break;
+        case 'install':
+            if (count($argv) !== 1 || $argv[0] !== 'CER') reject();
+            $command = ['/usr/bin/ttyd', '-i', '127.0.0.1', '-p', '3000', '-o', '/opt/de_GWD/ui-install' . $argv[0]]; break;
+        case 'ui-restore':
+            if (count($argv) !== 1 || !preg_match('/^[a-f0-9]{32}$/D', $argv[0])) reject();
+            $source = '/var/lib/de_GWD/uploads/' . $argv[0];
+            $stat = lstat($source);
+            if ($stat === false || ($stat['mode'] & 0170000) !== 0100000 ||
+                $stat['nlink'] !== 1 || $stat['uid'] !== posix_getpwnam('www-data')['uid']) reject();
+            $destination = '/var/lib/de_GWD/restore/de_GWD_bak';
+            if (is_link($destination) || (file_exists($destination) && !is_file($destination))) reject();
+            if (!rename($source, $destination) || !chown($destination, 0) ||
+                !chgrp($destination, 'www-data') || !chmod($destination, 0640)) reject();
+            $command = ['/opt/de_GWD/ui-restore']; break;
+        case 'migratePasswordHash':
+            if ($background || count($argv) !== 2) reject();
+            $hashInfo = 'pass' . 'word_get_info';
+            if (strlen($argv[0]) > 255 ||
+                !preg_match('/^[a-f0-9]{64}$/Di', $argv[0]) && !$hashInfo($argv[0])['algo'] ||
+                strlen($argv[1]) > 255 || !$hashInfo($argv[1])['algo']) reject();
+            $path = '/opt/de_GWD/0conf';
+            $lock = fopen('/opt/de_GWD/.config-lock', 'c');
+            if ($lock === false || !flock($lock, LOCK_EX)) reject();
+            $config = json_decode(file_get_contents($path), true);
+            if (!is_array($config) || ($config['address']['PWD'] ?? null) !== $argv[0]) exit(1);
+            $config['address']['PWD'] = $argv[1];
+            $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $temp = tempnam('/opt/de_GWD', '.config-');
+            if ($temp === false || file_put_contents($temp, $json) !== strlen($json) ||
+                !chown($temp, 0) || !chgrp($temp, 'www-data') || !chmod($temp, 0660) || !rename($temp, $path)) exit(1);
+            exit(0);
+        default: reject();
+    }
+}
+if ($background) {
+    $pid = pcntl_fork();
+    if ($pid < 0) exit(1);
+    if ($pid > 0) exit(0);
+    posix_setsid();
+    fclose(STDIN); fclose(STDOUT); fclose(STDERR);
+    fopen('/dev/null', 'r'); fopen('/dev/null', 'w'); fopen('/dev/null', 'w');
+}
+$descriptors = [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']];
+if ($background) $descriptors = [0 => ['file', '/dev/null', 'r'], 1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']];
+$process = proc_open($command, $descriptors, $pipes, null, ['PATH' => '/usr/sbin:/usr/bin:/sbin:/bin']);
+if (!is_resource($process)) exit(1);
+if (!$background) {
+    echo stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+}
+exit(proc_close($process));

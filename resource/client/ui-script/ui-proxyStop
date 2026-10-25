@@ -1,37 +1,20 @@
 #!/bin/bash
-python3 <<EOF
-import toml
-with open("/opt/de_GWD/pihole/pihole.toml", "r") as f:
- data = toml.load(f)
+set -e
+. /opt/de_GWD/ui-dns-lib
 
-data["dns"]["upstreams"] = ["127.0.0.1#5331","127.0.0.1#5331"]
-
-with open("/opt/de_GWD/pihole/pihole.toml", "w") as f:
-    toml.dump(data, f)
-EOF
-
->/etc/resolvconf/resolv.conf.d/head
->/etc/resolvconf/resolv.conf.d/original
->/etc/resolvconf/resolv.conf.d/tail
-rm -rf /etc/resolv.conf
-rm -rf /run/resolvconf/interface
-cat << EOF >/etc/resolvconf/resolv.conf.d/base
-nameserver 127.0.0.1
-EOF
-if [[ -f "/etc/resolvconf/run/resolv.conf" ]]; then
-ln -sf /etc/resolvconf/run/resolv.conf /etc/resolv.conf
-elif [[ -f "/run/resolvconf/resolv.conf" ]]; then
-ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
+# Bypass the proxy via SmartDNS's domestic port without tearing down the
+# independent mosdns, CoreDNS, firewall or DNS resolver configuration.
+/opt/de_GWD/ui-smartDNS
+gwd_pihole_upstream 5331
+gwd_resolver_local
+touch /opt/de_GWD/nftables/proxy.disabled
+if nft list chain ip de_GWD prerouting >/dev/null 2>&1; then
+    nft flush chain ip de_GWD prerouting
 fi
-sed -i '/dns-nameservers /d' /etc/network/interfaces
-resolvconf -u
-
+if nft list chain ip de_GWD output >/dev/null 2>&1; then
+    nft flush chain ip de_GWD output
+fi
 systemctl stop vtrui
-systemctl stop mosdns
-systemctl stop nftables
-ip rule del table 220 >/dev/null 2>&1
-ip route flush table 220 >/dev/null 2>&1
-ip route flush cache >/dev/null 2>&1
-ip route del local default dev lo table 220 >/dev/null 2>&1
-
-systemctl restart smartdns
+ip rule del table 220 >/dev/null 2>&1 || :
+ip route flush table 220 >/dev/null 2>&1 || :
+ip route flush cache >/dev/null 2>&1 || :

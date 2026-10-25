@@ -1,2 +1,0 @@
-#!/bin/bash
-[[ -n $(find /sys/class/net | awk -F'/' '{print$NF}' | grep '^wg0') ]] && echo "success"

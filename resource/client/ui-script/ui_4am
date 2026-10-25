@@ -118,12 +118,10 @@ if [[ $(checkSum /opt/de_GWD/.repo/geoip.dat $geoip_sha256sum) = "true" ]]; then
   cp -f /opt/de_GWD/.repo/geoip.dat /opt/de_GWD/vtrui/geoip.dat
 fi
 
-if [[ $(checkSum /opt/de_GWD/.repo/IPchnroute $IPchnroute_sha256sum) = "true" ]]; then
-cp -f /opt/de_GWD/.repo/IPchnroute /opt/de_GWD/nftables/IP_CHNROUTE
-sed -i '/^\s*$/d' /opt/de_GWD/nftables/IP_CHNROUTE
-sed -i 's/$/,/g' /opt/de_GWD/nftables/IP_CHNROUTE
-nft flush set ip de_GWD CHNROUTE
-cat << EOF >/opt/de_GWD/nftables/SET_CHNROUTE.nft
+if [[ $(checkSum /opt/de_GWD/.repo/IPchnroute "$IPchnroute_sha256sum") = "true" ]]; then
+  cp -f /opt/de_GWD/.repo/IPchnroute /opt/de_GWD/nftables/IP_CHNROUTE
+  sed -i '/^\s*$/d; s/$/,/' /opt/de_GWD/nftables/IP_CHNROUTE
+  cat << EOF >/opt/de_GWD/nftables/SET_CHNROUTE.nft
 #!/usr/sbin/nft -f
 table ip de_GWD {
         set CHNROUTE {
@@ -134,17 +132,24 @@ table ip de_GWD {
         }
 }
 EOF
-chmod +x /opt/de_GWD/nftables/SET_CHNROUTE.nft
-/opt/de_GWD/nftables/SET_CHNROUTE.nft
+  chmod 0755 /opt/de_GWD/nftables/SET_CHNROUTE.nft
+  if nft list set ip de_GWD CHNROUTE >/dev/null 2>&1; then
+    nft flush set ip de_GWD CHNROUTE
+    if [[ -s /opt/de_GWD/nftables/IP_CHNROUTE ]]; then
+      nft add element ip de_GWD CHNROUTE "{ $(cat /opt/de_GWD/nftables/IP_CHNROUTE) }"
+    fi
+  fi
 fi
 
-if [[ -n $(openssl x509 -enddate -noout -in /var/www/ssl/de_GWD.cer -checkend 259200 | grep "Certificate will expire") ]] && [[ -d "/root/.acme.sh" ]]; then
-"/root/.acme.sh"/acme.sh --force --set-default-ca  --server letsencrypt
-"/root/.acme.sh"/acme.sh --force --cron --home "/root/.acme.sh"
-
-sslFolder=$(ls "/root/.acme.sh" | grep '_ecc')
-cp -f "/root/.acme.sh"/$sslFolder/fullchain.cer /var/www/ssl/de_GWD.cer
-cp -f "/root/.acme.sh"/$sslFolder/*.key /var/www/ssl/de_GWD.key
+# acme.sh's install-cert renewal hook owns the fixed deployed certificate paths.
+# Do not select an arbitrary _ecc directory or copy the private key through a glob.
+if [[ -f /var/www/ssl/de_GWD.cer && -x /root/.acme.sh/acme.sh ]] &&
+   ! openssl x509 -noout -checkend 259200 -in /var/www/ssl/de_GWD.cer >/dev/null 2>&1; then
+  /root/.acme.sh/acme.sh --cron --home /root/.acme.sh
+  chown root:www-data /var/www/ssl/de_GWD.key /var/www/ssl/de_GWD.cer
+  chmod 0640 /var/www/ssl/de_GWD.key
+  chmod 0644 /var/www/ssl/de_GWD.cer
+  if systemctl is-active --quiet coredns; then systemctl restart coredns; fi
 fi
 
 [[ $1 = "u" ]] && service cron restart

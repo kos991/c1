@@ -33,11 +33,21 @@ EOF
 systemctl restart docker
 fi
 
-dockerComposeVer=$(curl -fsSL "https://api.github.com/repos/docker/compose/releases/latest" | jq -r .tag_name | grep -v '^null$')
-[[ -z $dockerComposeVer_reserved ]] && dockerComposeVer=$dockerComposeVer_reserved
+dockerComposeVer=$(curl -fsSL "https://api.github.com/repos/docker/compose/releases/latest" 2>/dev/null | jq -r .tag_name 2>/dev/null | grep -v '^null$' | head -c 20)
+[[ -z "$dockerComposeVer" ]] && dockerComposeVer="$dockerComposeVer_reserved"
+[[ -n "$dockerComposeVer" ]] || { echo -e "${WHITE}[ ${RED}✕ ${WHITE}]\c" && echo -e "\t${WHITE}Docker Compose${RED} Version Detection Failed${cRES}"; exit 1; }
 
-curl -L https://github.com/docker/compose/releases/download/$dockerComposeVer/docker-compose-$(uname -s)-$(uname -m) >/usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
+temp=$(mktemp /tmp/docker-compose.XXXXXXXX)
+trap 'rm -f "$temp"' RETURN
+if ! curl -fsSL -L "https://github.com/docker/compose/releases/download/${dockerComposeVer}/docker-compose-$(uname -s)-$(uname -m)" -o "$temp"; then
+  echo -e "${WHITE}[ ${RED}✕ ${WHITE}]\c" && echo -e "\t${WHITE}Docker Compose${RED} Download Failed${cRES}"
+  exit 1
+fi
+
+# Verify downloaded binary is not empty and is executable
+[[ -s "$temp" ]] || { echo -e "${WHITE}[ ${RED}✕ ${WHITE}]\c" && echo -e "\t${WHITE}Docker Compose${RED} Download Empty${cRES}"; exit 1; }
+chmod +x "$temp"
+mv "$temp" /usr/local/bin/docker-compose
 
 echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Install Docker${cRES}"
 }

@@ -1,12 +1,13 @@
 <?php require_once('../auth.php'); ?>
+<?php require_once __DIR__ . '/helpers.php'; ?>
 <?php if (isset($auth) && $auth) {?>
 <?php
-$RproxyStunnelPort = $_GET['RproxyStunnelPort'];
-$RproxyStunnelUUID = $_GET['RproxyStunnelUUID'];
-$RproxySinStatus = $_GET['RproxySinStatus'];
-$RproxyS0uuidList = $_GET['RproxyS0uuidList'];
-$RproxySmappingStatus = $_GET['RproxySmappingStatus'];
-$RproxyS1List = $_GET['RproxyS1List'];
+$RproxyStunnelPort = gwd_integer('RproxyStunnelPort', 1, 65535);
+$RproxyStunnelUUID = gwd_string('RproxyStunnelUUID');
+$RproxySinStatus = gwd_string('RproxySinStatus');
+$RproxyS0uuidList = gwd_rows('RproxyS0uuidList', ['RproxyS0uuid', 'RproxyS0mark']);
+$RproxySmappingStatus = gwd_string('RproxySmappingStatus');
+$RproxyS1List = gwd_rows('RproxyS1List', ['port', 'protocol']);
 
 $data = json_decode(file_get_contents('/opt/de_GWD/0conf'), true);
 $data['FORWARD']['Rproxy']['server'] = array();
@@ -20,6 +21,6 @@ $data['FORWARD']['Rproxy']['server']['mapping'] = $RproxyS1List;
 $newJsonString = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 file_put_contents('/opt/de_GWD/0conf', $newJsonString);
 
-exec('sudo /opt/de_GWD/ui-RproxySsave &');
+gwd_command('ui-RproxySsave', [], true);
 ?>
 <?php }?>

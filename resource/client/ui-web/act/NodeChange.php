@@ -1,7 +1,7 @@
 <?php require_once('../auth.php'); ?>
 <?php if (isset($auth) && $auth) {?>
 <?php
-$nodenum = $_GET['nodenum'];
-exec("sudo /opt/de_GWD/ui-NodeChange $nodenum &");
+$nodenum = gwd_integer('nodenum', 0, 2147483647);
+gwd_command('ui-NodeChange', [$nodenum], true);
 ?>
 <?php }?>

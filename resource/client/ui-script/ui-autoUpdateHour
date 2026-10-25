@@ -1,46 +1,35 @@
 #!/bin/bash
-if [[ $1 = "off" ]]; then
-crontab -l 2>/dev/null > /tmp/now.cron
-sed -i '/autoUpdate/d' /tmp/now.cron
-crontab /tmp/now.cron
-rm -rf /tmp/now.cron
-rm -rf /opt/de_GWD/autoUpdate
-else
-cat << "EOF" >/opt/de_GWD/autoUpdate
+set -euo pipefail
+
+if [[ "${1:-}" == "off" ]]; then
+  crontab -l 2>/dev/null | grep -v '/opt/de_GWD/autoUpdate' | crontab -
+  rm -f /opt/de_GWD/autoUpdate
+  exit 0
+fi
+
+# Create cron job script
+cat > /opt/de_GWD/autoUpdate <<'SCRIPT'
 #!/bin/bash
-localVer=$(awk 'NR==1' /var/www/html/act/version.php)
-remoteVer=$(curl -fsSLo- https://raw.githubusercontent.com/kos991/c1/main/version.php | head -n 1)
+set -euo pipefail
+localVer=$(head -n 1 /var/lib/de_GWD/version.php 2>/dev/null) || exit 1
+remoteVer=$(curl -fsSL --max-time 10 https://raw.githubusercontent.com/kos991/c1/main/version.php 2>/dev/null | head -n 1) || exit 1
+[[ $localVer =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ && $remoteVer =~ ^v[0-9]+\.[0-9]+\.[0-9]+(\+C1)?$ ]] || exit 1
+remoteVer=${remoteVer%+C1}
 
-echo $localVer >/tmp/de_GWD_Ver
-echo $remoteVer >>/tmp/de_GWD_Ver
-
-VerCP=$(cat /tmp/de_GWD_Ver | sort -rV | uniq | awk NR==2)
-
-if [[ $VerCP = $localVer ]]; then
-systemctl stop php7.4-fpm
-
-rm -rf /tmp/autoUpdate
-wget -cqO /tmp/autoUpdate https://raw.githubusercontent.com/kos991/c1/main/client
-
-if [[ $(du -sk /tmp/autoUpdate 2>/dev/null | awk '{print$1}') -gt 70 ]]; then
-sed -i '$d' /tmp/autoUpdate
-echo "updateGWD auto" >>/tmp/autoUpdate
-chmod +x /tmp/autoUpdate
-/tmp/autoUpdate
-rm -rf /tmp/autoUpdate
+# The trusted helper reads a root-owned URL and digest; the web configuration
+# cannot select code for cron to execute.
+if dpkg --compare-versions "${remoteVer#v}" gt "${localVer#v}"; then
+  /opt/de_GWD/ui-download-update-trusted || exit 1
+  /opt/de_GWD/update auto
 fi
+SCRIPT
 
-systemctl restart php7.4-fpm
-fi
+chmod 0755 /opt/de_GWD/autoUpdate
 
-rm -rf /tmp/de_GWD_Ver
-rm -rf /tmp/autoUpdate
-EOF
-chmod +x /opt/de_GWD/autoUpdate
+# Install cron job at specified hour
+hour="${1:?Hour required (0-23)}"
+[[ "$hour" =~ ^[0-9]+$ && "$hour" -ge 0 && "$hour" -le 23 ]] || { echo "Hour must be 0-23" >&2; exit 1; }
 
-crontab -l 2>/dev/null > /tmp/now.cron
-sed -i '/autoUpdate/d' /tmp/now.cron
-echo "0 $1 * * *  /opt/de_GWD/autoUpdate" >> /tmp/now.cron
-crontab /tmp/now.cron
-rm -rf /tmp/now.cron
-fi
+crontab_content=$(crontab -l 2>/dev/null || true)
+crontab_content=$(printf '%s\n' "$crontab_content" | grep -v '/opt/de_GWD/autoUpdate' || true)
+printf '%s\n0 %d * * *  /opt/de_GWD/autoUpdate\n' "$crontab_content" | crontab -
